@@ -1,0 +1,36 @@
+{
+  "name": "rizzing",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck:functions": "tsc --noEmit --target es2022 --lib es2022,dom --module esnext --moduleResolution bundler --strict --skipLibCheck --allowImportingTsExtensions supabase/functions/deno-shim.d.ts supabase/functions/generate-replies/index.ts supabase/functions/update-weights/index.ts"
+  },
+  "dependencies": {
+    "@capacitor/android": "6.2.0",
+    "@capacitor/camera": "6.1.2",
+    "@capacitor/cli": "6.2.0",
+    "@capacitor/core": "6.2.0",
+    "@capacitor/preferences": "6.0.3",
+    "@supabase/supabase-js": "2.47.10",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-router-dom": "6.28.1",
+    "zustand": "5.0.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.2",
+    "@testing-library/jest-dom": "6.6.3",
+    "@testing-library/react": "16.1.0",
+    "@vitejs/plugin-react": "4.3.4",
+    "jsdom": "25.0.1",
+    "tailwindcss": "4.3.2",
+    "typescript": "5.7.3",
+    "vite": "6.0.7",
+    "vitest": "2.1.8"
+  }
+}
