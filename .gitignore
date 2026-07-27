@@ -3,15 +3,19 @@
 # NOTE: gitignore has NO inline comments. A trailing "# ..." becomes part of the
 # pattern and silently matches nothing. Keep every comment on its own line.
 
-# VITE_SUPABASE_URL + anon key
+# Suffix-proof: catches .env, .env.local, .env.bak, .env.old, .env.save …
+# anywhere in the tree. An exact path like `supabase/functions/.env` does NOT
+# cover `supabase/functions/.env.bak`, and a stray editor/rotation backup is
+# the easiest way to leak a key that the "real" file was protecting.
 .env
-.env.local
-.env.*.local
+.env*
 
-# GROQ_API_KEY
+# Belt-and-braces explicit paths (redundant with .env* above, kept as
+# documentation of WHERE the live credentials actually live):
+#   .env                     VITE_SUPABASE_URL + anon key
+#   supabase/.env.local      GROQ_API_KEY
+#   supabase/functions/.env  GROQ_API_KEY, GEMINI_API_KEY, CEREBRAS_API_KEY, SUPABASE_ANON_KEY
 supabase/.env.local
-
-# GROQ_API_KEY, GEMINI_API_KEY, SUPABASE_ANON_KEY
 supabase/functions/.env
 
 # Supabase CLI local state. NOT just a cache: .temp/pooler-url embeds the

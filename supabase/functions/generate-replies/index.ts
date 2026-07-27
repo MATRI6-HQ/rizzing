@@ -16,7 +16,12 @@ import { corsHeaders, json } from "../_shared/cors.ts"
 // gemini (default) = run the whole chain. Any other provider name pins that one provider.
 const REPLY_PROVIDER = (Deno.env.get("REPLY_PROVIDER") ?? "gemini").toLowerCase()
 
-const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-2.5-flash-lite"
+// `-latest` on purpose, not a pinned version. Google retired gemini-2.5-flash-lite for
+// new API keys mid-flight (404 "no longer available to new users") while still LISTING it
+// in /v1beta/models — a pinned id silently becomes a dead primary. The alias tracks the
+// current flash-lite. Verified 2026-07-26: gemini-flash-lite-latest 1.3s vs
+// gemini-3.5-flash-lite 6.3s for the same prompt.
+const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-flash-lite-latest"
 const GEMINI_URL =
   `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
 
@@ -25,8 +30,10 @@ const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 const GROQ_MODEL = Deno.env.get("MODEL_NAME") ?? "llama-3.1-8b-instant"
 
 // Cerebras is also OpenAI-compatible — same helper, different host/model/key.
+// NOT llama-3.3-70b: /v1/models on this account returns only zai-glm-4.7, gpt-oss-120b
+// and gemma-4-31b — no llama at all, so the old default 404'd unconditionally.
 const CEREBRAS_URL = "https://api.cerebras.ai/v1/chat/completions"
-const CEREBRAS_MODEL = Deno.env.get("CEREBRAS_MODEL") ?? "llama-3.3-70b"
+const CEREBRAS_MODEL = Deno.env.get("CEREBRAS_MODEL") ?? "gpt-oss-120b"
 
 // Retry schedules for 429 / 5xx responses — ms to wait before each retry. Tune here;
 // no other file reads these. Attempts = schedule.length + 1 (the initial try).
@@ -282,7 +289,18 @@ Deno.serve(async (req) => {
 
     let anyRateLimited = false
     for (const [name, fn] of providers) {
-      const result = await fn(system, her_message)
+      // A network-level failure (DNS, TLS, connection reset) throws instead of returning
+      // a status, so it bypasses fetchWithRetry's status-code path entirely. Uncaught it
+      // would escape the loop and 500 the whole request — i.e. an outage in the PRIMARY
+      // would take out the fallback chain that exists for exactly that case. Treat it as
+      // "this provider failed, try the next one". rateLimited: a thrown fetch is transient,
+      // so an all-throw chain lands on the retryable 503, not the hard PROVIDER_ERROR.
+      let result: ProviderResult
+      try {
+        result = await fn(system, her_message)
+      } catch (e) {
+        result = { ok: false, status: 0, rateLimited: true, detail: `${name} threw: ${(e as Error).message}` }
+      }
       // `provider` names whoever actually served it, not whoever was asked first.
       if (result.ok) return json({ ...result.data, provider: name })
       anyRateLimited = anyRateLimited || result.rateLimited

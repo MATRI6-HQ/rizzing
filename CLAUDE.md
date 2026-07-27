@@ -324,9 +324,22 @@ Also detect escalation signals in her message text: mentions of meeting, number,
   `REPLY_PROVIDER=gemini`, `GEMINI_API_KEY=<key>` (verify it's a real Generative
   Language API key, `AIza…`, not an OAuth token), optionally `GEMINI_MODEL`. Groq stays
   as first fallback via `GROQ_API_KEY` + `MODEL_NAME`; Cerebras is the second fallback via
-  `CEREBRAS_API_KEY` (+ optional `CEREBRAS_MODEL`, default `llama-3.3-70b`). Deploy:
+  `CEREBRAS_API_KEY` (+ optional `CEREBRAS_MODEL`). Deploy:
   `supabase functions deploy generate-replies`. **Local edits are not live until this
   deploy runs.**
+
+#### Model names — verified live 2026-07-26, do not guess these
+| Provider | Model | Note |
+|---|---|---|
+| Gemini | `gemini-flash-lite-latest` | ✅ ~1.1s. **Not** `gemini-2.5-flash-lite` — Google 404s it for new API keys ("no longer available to new users") while STILL listing it in `/v1beta/models`. A pinned id can die under you; the alias can't. `gemini-3.5-flash-lite` also works but is 6.3s. |
+| Groq | `llama-3.1-8b-instant` | ✅ ~0.3s, fastest of the three. |
+| Cerebras | `gpt-oss-120b` | ⚠️ **All** Cerebras models return HTTP 402 "Payment required" until billing is enabled. `/v1/models` on this account offers only `zai-glm-4.7`, `gpt-oss-120b`, `gemma-4-31b` — **no llama**, so the old `llama-3.3-70b` default 404'd unconditionally. |
+
+402 is deliberately outside the retryable set (`429 || >= 500`), so a billing-blocked
+Cerebras costs one round-trip, not a backoff cycle.
+
+To re-verify all three at any time, run the probe in the scratchpad against
+`supabase/functions/.env` (same URLs/models/JSON-mode params as the function, no Deno needed).
 
 ### System prompt structure (for Edge Function)
 ```
