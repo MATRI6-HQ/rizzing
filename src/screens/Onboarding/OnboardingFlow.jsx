@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import PageTransition, { withViewTransition } from '../../components/PageTransition'
+import PageTransition, {
+  withViewTransition,
+  useTransitionNavigate,
+} from '../../components/PageTransition'
 import ChatBubble, { TypingIndicator } from '../../components/ChatBubble'
 import TermsContent from '../../components/TermsContent'
 import { TERMS_VERSION } from '../../lib/legal'
@@ -271,7 +273,7 @@ function VibeCheckIntro({ onContinue }) {
 
 // ── Main component ───────────────────────────────────────────────────────────
 export default function OnboardingFlow() {
-  const navigate = useNavigate()
+  const navigate = useTransitionNavigate()
   const user = useAuthStore((s) => s.user)
   const loadProfile = useProfileStore((s) => s.load)
   const consentAccepted = useConsentStore((s) => s.accepted)

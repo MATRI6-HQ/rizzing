@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useTransitionNavigate } from '../../components/PageTransition'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/authStore'
 import { useProfileStore } from '../../store/profileStore'
@@ -94,7 +94,7 @@ function TermsSheet({ onClose }) {
 }
 
 export default function ProfileScreen() {
-  const navigate = useNavigate()
+  const navigate = useTransitionNavigate()
   const user = useAuthStore((s) => s.user)
   const signOut = useAuthStore((s) => s.signOut)
   const profile = useProfileStore()

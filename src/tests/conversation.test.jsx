@@ -73,7 +73,9 @@ describe('ConversationFlow', () => {
     // No matchId → the mount fetch short-circuits, so no Supabase call is made.
     renderFlow()
     expect(screen.getByPlaceholderText('Paste or type her message…')).toBeInTheDocument()
-    expect(screen.getByText('Match')).toBeInTheDocument()
+    // An unresolved match holds a skeleton — it must NOT flash the literal word
+    // "Match" (or a "?" avatar) as though that were the real name.
+    expect(screen.queryByText('Match')).not.toBeInTheDocument()
     // The Paste / Type / Screenshot tabs are gone.
     expect(screen.queryByText('Screenshot')).not.toBeInTheDocument()
     expect(screen.queryByText('Paste')).not.toBeInTheDocument()

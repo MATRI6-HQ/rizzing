@@ -178,6 +178,13 @@ body {
   animation: page-enter 220ms ease-out both;
 }
 
+/* While a view transition is running the root snapshot already plays page-enter.
+   Mute the inner wrapper's copy so the fade and the 10px slide don't stack into a
+   20px double-bounce. withViewTransition() sets/clears the attribute. */
+[data-view-transition='active'] .page-transition {
+  animation: none;
+}
+
 /* Tactile press for every tappable control. Uses the `scale` property (not
    transform) so it never fights a transform set elsewhere on the same element. */
 .press {

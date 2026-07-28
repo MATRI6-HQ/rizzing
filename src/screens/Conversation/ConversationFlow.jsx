@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
+import { useTransitionNavigate } from '../../components/PageTransition'
 import { supabase } from '../../lib/supabase'
 import { generateReplies, updateWeights } from '../../lib/api'
 import { useAuthStore } from '../../store/authStore'
@@ -70,7 +71,7 @@ function MiniSpinner() {
 
 // ── Screen ───────────────────────────────────────────────────────────────────
 export default function ConversationFlow() {
-  const navigate = useNavigate()
+  const navigate = useTransitionNavigate()
   const [searchParams] = useSearchParams()
   const matchId = searchParams.get('matchId')
   const mode = searchParams.get('mode')
@@ -251,17 +252,32 @@ export default function ConversationFlow() {
           >
             <BackIcon />
           </button>
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-gold/80 to-gold/40 flex items-center justify-center text-black font-bold text-base font-display shrink-0">
-            {initial}
-          </div>
-          <div className="min-w-0">
-            <p className="text-[15px] font-semibold text-text-primary tracking-wide truncate">
-              {match?.name ?? 'Match'}
-            </p>
-            {mode && MODE_COPY[mode] && (
-              <p className="text-[11px] text-text-muted truncate">{MODE_COPY[mode]}</p>
-            )}
-          </div>
+          {/* On a deep link or refresh the match isn't in the store yet, so this used to
+              flash a "?" avatar and the word "Match" before the real name arrived. Hold a
+              skeleton until it resolves rather than showing placeholder data. */}
+          {match ? (
+            <>
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-gold/80 to-gold/40 flex items-center justify-center text-black font-bold text-base font-display shrink-0">
+                {initial}
+              </div>
+              <div className="min-w-0">
+                <p className="text-[15px] font-semibold text-text-primary tracking-wide truncate">
+                  {match.name}
+                </p>
+                {mode && MODE_COPY[mode] && (
+                  <p className="text-[11px] text-text-muted truncate">{MODE_COPY[mode]}</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="w-9 h-9 rounded-full bg-white/[0.06] animate-pulse shrink-0" />
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="h-3 w-28 rounded bg-white/[0.06] animate-pulse" />
+                <div className="h-2 w-20 rounded bg-white/[0.04] animate-pulse" />
+              </div>
+            </>
+          )}
         </header>
 
         <ChatThread

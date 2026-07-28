@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useTransitionNavigate } from '../../components/PageTransition'
 import { signIn, signUp } from '../../lib/auth'
 import { useAuthStore } from '../../store/authStore'
 import { useProfileStore } from '../../store/profileStore'
@@ -36,7 +36,7 @@ function Spinner() {
 }
 
 export default function AuthScreen() {
-  const navigate = useNavigate()
+  const navigate = useTransitionNavigate()
   const loadProfile = useProfileStore((s) => s.load)
   // authStore.init() (called in App.jsx) keeps the session in sync via onAuthChange.
   // Capture the session present at mount once, so the redirect below can't fire

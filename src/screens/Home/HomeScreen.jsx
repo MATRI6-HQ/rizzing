@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useTransitionNavigate } from '../../components/PageTransition'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/authStore'
 import { useMatchStore } from '../../store/matchStore'
@@ -67,7 +67,7 @@ function MatchCard({ match, onOpen }) {
 
 // ── Screen ───────────────────────────────────────────────────────────────────
 export default function HomeScreen() {
-  const navigate = useNavigate()
+  const navigate = useTransitionNavigate()
   const user = useAuthStore((s) => s.user)
   const matches = useMatchStore((s) => s.matches)
 

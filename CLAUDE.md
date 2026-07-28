@@ -98,6 +98,20 @@ RIZZING is an AI-powered dating conversation assistant for the Indian market. Us
   Named export `withViewTransition(update)` wraps a state update so browsers with
   the View Transitions API also fade the *outgoing* view out; elsewhere it is a
   plain update and only the enter animation plays.
+  Named export **`useTransitionNavigate()`** is the navigate to use for user-initiated
+  route changes — it routes React Router's `navigate` through `withViewTransition` so the
+  two screens cross-fade. Without it the outgoing tree is swapped out synchronously and
+  only the incoming screen animates; that one-frame gap is what read as a "hard cut".
+  Wired into Auth, Onboarding, Home, Conversation and Profile.
+  **Auto-redirects fired from an effect keep the plain `useNavigate`** (CheckEmailScreen /
+  AuthCallback): `withViewTransition` calls `flushSync`, which warns inside a lifecycle,
+  and a redirect the user never asked for shouldn't animate anyway.
+  `withViewTransition` sets `data-view-transition="active"` on `<html>` for the duration;
+  `index.css` uses it to mute `.page-transition`'s own enter animation, since during a view
+  transition the root snapshot already plays `page-enter` and the two would otherwise stack
+  into a 20px double-bounce. The flag is cleared via `transition.finished.finally` — the
+  `finally` matters because `finished` *rejects* on a skipped transition, and an unhandled
+  rejection there would leave the app permanently un-animated.
 - CSS lives in `src/index.css`: `@keyframes page-enter` / `page-exit`, the
   `.page-transition` class, and the `::view-transition-old/new(root)` rules.
   `.page-transition` uses `animation-fill-mode: backwards` on purpose — a forwards
@@ -299,6 +313,40 @@ Detect from message count stored in the match:
 - Escalation: 20+
 
 Also detect escalation signals in her message text: mentions of meeting, number, WhatsApp, "kab miloge", etc.
+
+### Prompt construction — `generate-replies/prompt.ts`
+
+All prompt building lives in `prompt.ts`, split out of `index.ts` and importing nothing
+(no Deno, no network). `index.ts` keeps provider calls, retries and the fallback chain.
+The split exists so the prompt can be compiled and run against a live provider directly —
+that's the only practical way to check a prompt change, since prompt regressions are
+statistical and nothing a unit test can assert.
+
+**Bold is defined per stage, not globally** (`BOLD_BY_STAGE`). The original prompt defined
+bold as "make a direct move like suggesting you meet or asking for her number" at *every*
+stage. That concrete instruction sat next to abstract ones ("tease her", "build tension")
+and models reach for the concrete one — so Bold was a coffee invite on message one, every
+time. Now each stage carries its own `moves` menu plus a `canPropose` gate:
+
+| Stage | Can Bold propose meeting / ask for number? |
+|---|---|
+| cold open | No — explicitly forbidden, there's no rapport to justify it |
+| rapport | No — still too early |
+| connection | Only if *she* raised plans/being free first |
+| escalation | Yes — but it must be a specific plan, not "we should hang out sometime" |
+
+`canPropose` is stated **twice**: next to the bold definition, and again as the last rule
+before the JSON instruction. The restatement is load-bearing — with it appearing only
+mid-prompt, Gemini still leaked cold-open coffee invites; moving a copy to the end fixed it.
+
+**The history fetch is what stops repetition.** CLAUDE.md always specified "last 10 turns",
+but `conversation_turns` was never actually queried — every request looked like a brand-new
+conversation, so the model fell back on its generic prior. `HISTORY_TURNS` (10) of
+`{her_message, sent_text}` now go in as a transcript block. `confidence`/`humor`/`sarcasm`
+were likewise being SELECTed and then dropped on the floor; they're in the prompt now.
+
+Measured on the four fixture conversations (one per stage), Bold reaching for the
+meet-up/coffee cliché: **Groq 60% → 8%, Gemini 83% → 0%** at pre-escalation stages.
 
 ### Model call structure (provider routing — updated)
 - `generate-replies` runs a fixed fallback `CHAIN`: **Gemini (primary) → Groq (first
@@ -519,7 +567,7 @@ The Edge Functions read MODEL_NAME and VISION_MODEL from secrets, so switching f
 ```
 rizzing/
 ├── CLAUDE.md
-├── public/
+├── public/                (Vite publicDir — see "Static assets" below; NOT optional)
 │   ├── 1.jpg              (MATRI6/RIZZING puzzle icon)
 │   └── 2.jpg              (RIZZING full logo with wordmark)
 ├── src/
@@ -559,6 +607,7 @@ rizzing/
 ├── supabase/
 │   └── functions/
 │       ├── generate-replies/
+│       │   ├── prompt.ts        (pure prompt building — no Deno/network, so it's probeable)
 │       │   └── index.ts         (Gemini primary + Groq fallback, strict JSON)
 │       ├── process-screenshot/
 │       │   └── index.ts         (exists but UNUSED — screenshot/OCR dropped from UI)
@@ -597,6 +646,22 @@ This is a mobile-first React app. It runs three ways from one codebase:
 3. Android via Capacitor (bundled mode) — the same React build is compiled into the APK. The web assets ship inside the APK, so the app works offline and does not depend on Vercel at runtime.
 
 Capacitor must be configured for bundled mode: no `server.url` pointing at Vercel. The build output (dist) is copied into the native project by `cap sync`.
+
+### Static assets — anything referenced by a runtime path MUST live in `public/`
+
+`vite build` copies **only** `public/` into `dist/`. The dev server additionally serves the
+project root, so a file sitting at the repo root resolves fine at `npm run dev` and then
+404s in every deployed build — dev is not a check for this.
+
+- `<img src="/1.jpg">` in JSX is an opaque runtime string. Vite never rewrites it, so the
+  file must exist at `dist/1.jpg`, i.e. be committed at `public/1.jpg`.
+- The same path in `index.html` **is** build-time input: Vite resolves and hashes it into
+  `assets/`. That asymmetry is a trap — it means a misplaced image can leave the favicon
+  working while every in-app `<img>` is broken, which looks like a CSS bug, not a path bug.
+- On Netlify the SPA catch-all (`/*` → `/index.html`, 200) serves the HTML document for a
+  missing image instead of a 404, so it fails silently with no console error.
+
+If you add an image, put it in `public/` and confirm it appears in `dist/` after a build.
 
 Build pipeline:
 ```

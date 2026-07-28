@@ -12,6 +12,14 @@
 //   { safe: string, witty: string, bold: string, provider: string }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { corsHeaders, json } from "../_shared/cors.ts"
+import {
+  buildSystem,
+  boldLevelFor,
+  detectStage,
+  HISTORY_TURNS,
+  type Replies,
+  type Turn,
+} from "./prompt.ts"
 
 // gemini (default) = run the whole chain. Any other provider name pins that one provider.
 const REPLY_PROVIDER = (Deno.env.get("REPLY_PROVIDER") ?? "gemini").toLowerCase()
@@ -49,22 +57,9 @@ const PRIMARY_BACKOFF_MS = [500, 1500, 4000]
 const FALLBACK_BACKOFF_MS = [500, 1500]
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-// Bold floor — Bold must always read noticeably bolder than Safe/Witty (B2), even for
-// a timid profile. It scales up from here with the user's boldness/escalation.
-const BOLD_FLOOR = 6
-
-type Replies = { safe: string; witty: string; bold: string }
 type ProviderResult =
   | { ok: true; data: Replies }
   | { ok: false; status: number; rateLimited: boolean; detail: string }
-
-// Rule-based stage detection from the match's message_count (CLAUDE.md MVP rule).
-function detectStage(messageCount: number): string {
-  if (messageCount < 3) return "cold open"
-  if (messageCount < 10) return "rapport"
-  if (messageCount < 20) return "connection"
-  return "escalation"
-}
 
 /** Tolerant parse: strip ``` fences, JSON.parse, require the three string keys. */
 function parseReplies(raw: string): Replies {
@@ -74,33 +69,6 @@ function parseReplies(raw: string): Replies {
   const replies = { safe: pick("safe"), witty: pick("witty"), bold: pick("bold") }
   if (!replies.safe && !replies.witty && !replies.bold) throw new Error("no reply keys present")
   return replies
-}
-
-/** Build the system prompt. boldLevel (1-10) sharpens and scales the Bold persona. */
-function buildSystem(
-  p: { hinglish_ratio?: string; emoji_frequency?: string },
-  stage: string,
-  boldLevel: number,
-): string {
-  return (
-    `You are RIZZING, a dating-reply assistant for Indian users on apps like Tinder, ` +
-    `Bumble and Hinge. Write in the user's own texting voice — like a real person, not an AI.\n` +
-    `Hinglish level: ${p.hinglish_ratio ?? "medium"}. Emoji use: ${p.emoji_frequency ?? "sometimes"}.\n` +
-    `Conversation stage: ${stage}.\n\n` +
-    `Reply to her last message with exactly three options, as a JSON object whose keys are ` +
-    `"safe", "witty" and "bold", each mapping to a reply string:\n` +
-    `{"safe": "...", "witty": "...", "bold": "..."}\n\n` +
-    `- safe: warm, friendly, low-risk. Keeps things comfortable.\n` +
-    `- witty: clever and playful — a light tease, joke, or unexpected angle. Confident, not risky.\n` +
-    `- bold: genuinely daring (bold intensity ${boldLevel}/10 for this user). Forward and flirty, ` +
-    `takes initiative — tease her, build tension, or make a direct move like suggesting you meet or ` +
-    `asking for her number. It MUST read clearly bolder than safe and witty. Charming and confident, ` +
-    `never crude, creepy or disrespectful.\n\n` +
-    `Rules:\n` +
-    `- Match the user's Hinglish level and emoji preference exactly.\n` +
-    `- Each reply under 30 words. The three must be clearly different in energy.\n` +
-    `- Return ONLY the JSON object, nothing else.`
-  )
 }
 
 /** `backoff` is the caller's schedule — PRIMARY_BACKOFF_MS or FALLBACK_BACKOFF_MS. */
@@ -264,23 +232,31 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: req.headers.get("Authorization")! } } },
     )
 
-    // Personality + stage are best-effort — the function still works with defaults.
-    const [profileRes, matchRes] = await Promise.all([
+    // Personality + stage + history are all best-effort — the function still works with
+    // defaults if any of them come back empty.
+    const [profileRes, matchRes, turnsRes] = await Promise.all([
       supabase
         .from("personality_profiles")
-        .select("hinglish_ratio, emoji_frequency, confidence, humor, boldness, escalation")
+        .select("hinglish_ratio, emoji_frequency, confidence, humor, sarcasm, boldness, escalation")
         .eq("user_id", user_id)
         .maybeSingle(),
       supabase.from("matches").select("message_count").eq("id", match_id).maybeSingle(),
+      // The "last 10 turns" CLAUDE.md always specified — it was never actually queried, so
+      // every request looked like a fresh conversation to the model and it fell back on its
+      // generic prior. Newest-first + limit, then reversed into reading order below.
+      supabase
+        .from("conversation_turns")
+        .select("her_message, sent_text")
+        .eq("match_id", match_id)
+        .order("created_at", { ascending: false })
+        .limit(HISTORY_TURNS),
     ])
     const p = profileRes.data ?? {}
     const stage = detectStage(matchRes.data?.message_count ?? 0)
+    const turns = ((turnsRes.data ?? []) as Turn[]).slice().reverse()
 
     // Bold scales with boldness/escalation but never drops below the floor (B2).
-    const boldScore = (Number(p.boldness ?? 0.6) + Number(p.escalation ?? 0.6)) / 2
-    const boldLevel = Math.max(BOLD_FLOOR, Math.round(boldScore * 10))
-
-    const system = buildSystem(p, stage, boldLevel)
+    const system = buildSystem(p, stage, boldLevelFor(p), turns)
 
     // Default (REPLY_PROVIDER=gemini) runs the full chain. Naming any other provider
     // pins that one — the existing single-provider escape hatch, now for 3 names.
