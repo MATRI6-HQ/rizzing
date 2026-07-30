@@ -41,7 +41,7 @@ async function fillNameAndContinue() {
 /** Reach scenario 0: fill step 1, pick a texting style, skip emojis, dismiss the vibe check. */
 async function reachFirstScenario() {
   await fillNameAndContinue()
-  fireEvent.click(screen.getByText('Pure English only'))
+  fireEvent.click(screen.getByText('English only'))
   fireEvent.click(screen.getByRole('button', { name: 'Next →' }))
   fireEvent.click(screen.getByText('Skip for now →'))
   fireEvent.click(screen.getByRole('button', { name: "Let's go" }))
@@ -109,7 +109,7 @@ describe('OnboardingFlow', () => {
   it('Skip link on the emoji step advances to scenario 1, revealed via a typing beat', async () => {
     renderOnboarding()
     await fillNameAndContinue()
-    fireEvent.click(screen.getByText('Pure English only'))
+    fireEvent.click(screen.getByText('English only'))
     fireEvent.click(screen.getByRole('button', { name: 'Next →' }))
     expect(screen.getByText('How often do you use emojis?')).toBeInTheDocument()
     fireEvent.click(screen.getByText('Skip for now →'))
@@ -206,7 +206,7 @@ describe('OnboardingFlow', () => {
     renderOnboarding()
     await fillNameAndContinue()
     expect(screen.getByRole('button', { name: 'Next →' })).toBeDisabled()
-    fireEvent.click(screen.getByText('Pure English only'))
+    fireEvent.click(screen.getByText('English only'))
     expect(screen.getByText('How do you naturally text?')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Next →' })).toBeEnabled()
   })

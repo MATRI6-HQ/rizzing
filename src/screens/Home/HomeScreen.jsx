@@ -39,23 +39,27 @@ function PlusIcon() {
 const LOGO_SRC = '/1.jpg'
 
 // ── Match card ───────────────────────────────────────────────────────────────
-function MatchCard({ match, onOpen }) {
+function MatchCard({ match, onOpen, index }) {
   const preview = match.last_message_preview
   const initial = match.name?.charAt(0)?.toUpperCase() ?? '?'
   return (
     <div
       onClick={onOpen}
-      className="press lift btn-shadow card-rizzing p-4 cursor-pointer hover:border-white/10 flex items-center gap-4"
+      className="press lift card-elevated p-4 cursor-pointer hover:border-white/10 flex items-center gap-4"
+      // Staggered entrance: the list arrives as a sequence, not a slab.
+      style={{ animation: `page-enter 320ms ease-out ${index * 45}ms backwards` }}
     >
       <div className="w-11 h-11 rounded-full bg-gradient-to-br from-gold/80 to-gold/40 flex items-center justify-center text-black font-bold text-lg font-display shrink-0 shadow-[0_4px_14px_rgba(212,168,67,0.25)]">
         {initial}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[15px] font-semibold text-text-primary tracking-wide truncate">{match.name}</p>
+        <p className="text-[15px] font-medium text-text-primary truncate">{match.name}</p>
         {preview ? (
-          <p className="text-[13px] text-text-primary opacity-35 truncate mt-0.5">{preview}</p>
+          <p className="text-[13px] text-text-secondary opacity-70 truncate mt-0.5">{preview}</p>
         ) : (
-          <p className="text-[13px] text-gold opacity-40 truncate mt-0.5">Start a conversation →</p>
+          <p className="text-[12px] tracking-[0.1em] uppercase text-gold opacity-55 truncate mt-1">
+            Start a conversation
+          </p>
         )}
       </div>
       <div className="icon-chip w-8 h-8 text-text-primary">
@@ -167,40 +171,71 @@ export default function HomeScreen() {
 
         {/* Content */}
         {loading ? (
-          <div className="flex-1 px-6 pt-4 space-y-3">
+          <div className="flex-1 px-6 pt-8 space-y-3">
+            {/* Skeletons, not a spinner: the shape of what's coming is already known. */}
+            <div className="skeleton h-7 w-44 rounded-lg mb-7" />
             {[0, 1, 2].map((i) => (
-              <div key={i} className="card-rizzing h-[72px] animate-pulse opacity-30" />
+              <div key={i} className="skeleton h-[76px]" />
             ))}
           </div>
         ) : matches.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center pb-24">
+          // Empty state owns the primary action outright, so the FAB stands down and
+          // there is exactly one gold thing on screen to press.
+          <div className="flex-1 flex flex-col items-center justify-center px-8 pb-16 relative text-center">
+            <div className="hero-glow" aria-hidden="true" />
             <img
               src={LOGO_SRC}
               alt="RIZZING"
-              className="h-16 w-16 rounded-2xl object-cover opacity-70 shadow-[0_0_0_1px_rgba(212,168,67,0.12),0_4px_20px_rgba(212,168,67,0.15)]"
+              className="relative h-16 w-16 rounded-2xl object-cover shadow-[0_0_0_1px_rgba(212,168,67,0.16),0_8px_30px_rgba(212,168,67,0.2)]"
             />
-            <p className="font-display text-xl text-text-primary mt-4 opacity-60">No matches yet</p>
-            <p className="text-[13px] tracking-widest uppercase opacity-25 mt-2">
-              Tap + to add your first match
+            <h1 className="relative font-display text-[28px] leading-tight text-text-primary mt-6">
+              No matches yet
+            </h1>
+            <p className="relative text-[14px] text-text-secondary mt-3 leading-relaxed max-w-[280px]">
+              Add whoever you're talking to. Paste her message, get three replies in your
+              voice, send the one that sounds like you.
             </p>
+            <button
+              type="button"
+              onClick={() => setSheetOpen(true)}
+              className="press fab-extended mt-8"
+            >
+              <PlusIcon />
+              <span className="fab-extended__label">Add your first match</span>
+            </button>
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto px-6 pt-4 pb-24 space-y-3">
-            {matches.map((m) => (
-              <MatchCard key={m.id} match={m} onOpen={() => setEntryMatch(m)} />
-            ))}
+          <div className="flex-1 overflow-y-auto px-6 pt-7 pb-28">
+            {/* Hero — one display moment, then the list. */}
+            <div className="relative mb-7">
+              <div className="hero-glow" aria-hidden="true" />
+              <h1 className="relative font-display text-[30px] leading-tight text-text-primary">
+                Your matches
+              </h1>
+              <p className="relative text-[12px] tracking-[0.16em] uppercase text-text-muted mt-1.5">
+                {matches.length} {matches.length === 1 ? 'conversation' : 'conversations'}
+              </p>
+            </div>
+            <div className="space-y-3">
+              {matches.map((m, i) => (
+                <MatchCard key={m.id} match={m} index={i} onOpen={() => setEntryMatch(m)} />
+              ))}
+            </div>
           </div>
         )}
 
-        {/* FAB */}
-        <button
-          type="button"
-          onClick={() => setSheetOpen(true)}
-          aria-label="Add match"
-          className="press lift-gold absolute bottom-6 right-6 w-[52px] h-[52px] rounded-full bg-gold shadow-[0_6px_28px_rgba(212,168,67,0.4)] flex items-center justify-center text-black cursor-pointer"
-        >
-          <PlusIcon />
-        </button>
+        {/* Primary action — one gold control, and it names itself. */}
+        {!loading && matches.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setSheetOpen(true)}
+            aria-label="Add match"
+            className="press fab-extended absolute bottom-6 right-6"
+          >
+            <PlusIcon />
+            <span className="fab-extended__label">New match</span>
+          </button>
+        )}
 
         {/* 3-mode entry sheet */}
         {entryMatch && (

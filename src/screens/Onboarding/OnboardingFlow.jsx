@@ -20,7 +20,6 @@ export const TYPING_REVEAL_MS = 700
 // (The T&C consent gate and the vibe-check interstitial are NOT numbered steps.)
 const SETUP_STEPS = 3 // steps 1..3 are the setup/quick-pref phase
 const FIRST_SCENARIO_STEP = SETUP_STEPS + 1 // steps 4..10 are scenarios 0..6
-const SKIP_EMOJI_WEIGHT = 0.3 // emoji weight applied when the user skips
 const WEIGHT_MIN = 0.1
 const WEIGHT_MAX = 0.9
 const clamp = (v) => Math.min(WEIGHT_MAX, Math.max(WEIGHT_MIN, v))
@@ -29,16 +28,17 @@ const clamp = (v) => Math.min(WEIGHT_MAX, Math.max(WEIGHT_MIN, v))
 const AGE_MIN = 18
 const AGE_MAX = 50
 
-// QuickPref options (English only). Value is the weight written to the profile.
-const HINGLISH_OPTIONS = [
-  { label: 'Pure English only', value: 0.1 },
-  { label: 'Mix of English and Hindi', value: 0.5 },
-  { label: 'Mostly Hindi / Hinglish', value: 0.9 },
+// QuickPref options. `value` IS the string written to personality_profiles — the same
+// vocabulary the Profile screen edits (src/lib/prefs.js), so the two can't drift.
+const LANGUAGE_OPTIONS = [
+  { label: 'English only', value: 'english' },
+  { label: 'Mostly Hindi', value: 'hindi' },
+  { label: 'A mix of both', value: 'mix' },
 ]
 const EMOJI_OPTIONS = [
-  { label: 'Rarely or never', value: 0.1 },
-  { label: 'Sometimes, when it fits', value: 0.5 },
-  { label: "All the time, can't stop", value: 0.9 },
+  { label: 'Rarely or never', value: 'never' },
+  { label: 'Sometimes, when it fits', value: 'sometimes' },
+  { label: "All the time, can't stop", value: 'always' },
 ]
 
 // 7 scenarios — one per personality axis (revealed preference; no Safe/Bold labels
@@ -143,10 +143,6 @@ export function computeWeights(choices) {
     sarcasm: clamp(SARCASM[choices[6]]),
   }
 }
-
-// The deployed schema stores these as text buckets, not floats (see CLAUDE.md).
-const hinglishToText = (v) => (v <= 0.3 ? 'low' : v <= 0.6 ? 'medium' : 'high')
-const emojiToText = (v) => (v <= 0.3 ? 'never' : v <= 0.6 ? 'sometimes' : 'always')
 
 // ── Small presentational pieces ──────────────────────────────────────────────
 function Spinner() {
@@ -293,7 +289,7 @@ export default function OnboardingFlow() {
   const [saving, setSaving] = useState(false)
 
   // QuickPrefs
-  const [hinglishLevel, setHinglishLevel] = useState(null)
+  const [language, setLanguage] = useState(null)
   const [emojiLevel, setEmojiLevel] = useState(null)
   const [emojiFavorites, setEmojiFavorites] = useState('')
 
@@ -328,17 +324,10 @@ export default function OnboardingFlow() {
     }
   }
 
-  // QuickPref pills only select — advancing is done with the Next button.
-  function selectHinglish(value) {
-    setHinglishLevel(value)
-  }
-
-  function selectEmoji(value) {
-    setEmojiLevel(value)
-  }
-
+  // Skipping leaves emoji_frequency genuinely unset (null) rather than guessing a bucket —
+  // ProfileScreen renders that as "not set yet" and invites them to pick later.
   function skipEmoji() {
-    setEmojiLevel(SKIP_EMOJI_WEIGHT)
+    setEmojiLevel(null)
     setEmojiFavorites('')
     goToStep(FIRST_SCENARIO_STEP)
   }
@@ -375,7 +364,7 @@ export default function OnboardingFlow() {
 
   // Whether the bottom-nav Next is enabled for the current step.
   function isNextEnabled() {
-    if (step === 2) return hinglishLevel !== null
+    if (step === 2) return language !== null
     if (step === 3) return emojiLevel !== null
     if (step >= FIRST_SCENARIO_STEP) return choices[step - FIRST_SCENARIO_STEP] !== null
     return false // step 1 uses the Continue button instead
@@ -413,11 +402,11 @@ export default function OnboardingFlow() {
           boldness: weights.boldness,
           sarcasm: weights.sarcasm,
           persistence: weights.persistence,
-          hinglish_ratio: hinglishToText(hinglishLevel),
-          emoji_frequency: emojiToText(emojiLevel),
+          hinglish_ratio: language,
+          emoji_frequency: emojiLevel,
           preferred_emojis: preferredEmojis,
           onboarding_responses: {
-            hinglish_level: hinglishLevel,
+            hinglish_level: language,
             emoji_level: emojiLevel,
             preferred_emojis: preferredEmojis,
             scenario_choices: finalChoices,
@@ -549,12 +538,12 @@ export default function OnboardingFlow() {
                     Pick the style that feels most like you
                   </p>
                   <div className="flex flex-col gap-3">
-                    {HINGLISH_OPTIONS.map((opt) => (
+                    {LANGUAGE_OPTIONS.map((opt) => (
                       <PillButton
-                        key={opt.label}
+                        key={opt.value}
                         label={opt.label}
-                        selected={hinglishLevel === opt.value}
-                        onClick={() => selectHinglish(opt.value)}
+                        selected={language === opt.value}
+                        onClick={() => setLanguage(opt.value)}
                       />
                     ))}
                   </div>
@@ -570,10 +559,10 @@ export default function OnboardingFlow() {
                   <div className="flex flex-col gap-3">
                     {EMOJI_OPTIONS.map((opt) => (
                       <PillButton
-                        key={opt.label}
+                        key={opt.value}
                         label={opt.label}
                         selected={emojiLevel === opt.value}
-                        onClick={() => selectEmoji(opt.value)}
+                        onClick={() => setEmojiLevel(opt.value)}
                       />
                     ))}
                   </div>

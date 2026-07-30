@@ -128,14 +128,37 @@ RIZZING is an AI-powered dating conversation assistant for the Indian market. Us
 ### Chat bubble system (shared by Onboarding scenarios + ConversationFlow)
 - `src/components/ChatBubble.jsx` — default export `ChatBubble` (`variant`:
   `incoming`/`outgoing`, `tone`: `safe`/`witty`/`bold`/`neutral`, `selectable`,
-  `selected`, `onClick`). Named export `TypingIndicator` — three staggered dots
-  shown while a message is "being typed". Both surfaces render every message
-  through this component so they stay visually identical by construction — do
+  `selected`, `onClick`). Named export `TypingIndicator` — three dots that read as a
+  **left→right travelling wave** (`@keyframes typing-wave`). Both surfaces render every
+  message through this component so they stay visually identical by construction — do
   not hand-roll bubble markup elsewhere.
-- `src/components/ChatThread.jsx` — scrollable container, auto-scrolls to the
-  newest child on `autoScrollKey` change, and renders a faint SVG-turbulence
-  grain overlay for atmosphere. `el.scrollTo` is feature-detected since jsdom
-  (unit tests) doesn't implement it.
+  If the wave ever stops reading as directional, the stagger is not the thing to change:
+  the dots were always offset 150/300ms and it still looked like a uniform shimmer. What
+  makes it directional is that the lit state is **narrow and high-contrast** (peak at 22%
+  of the cycle, back at rest by 45%, opacity 0.28 → 1), so roughly one dot is lit at a
+  time and the lit *position* is what moves. Widening the lift or flattening the opacity
+  range collapses it back into a pulse.
+- `src/components/ChatThread.jsx` — scroll container + faint SVG-turbulence grain
+  overlay. `el.scrollTo` is feature-detected since jsdom (unit tests) doesn't
+  implement it. **Scroll ownership is WhatsApp-style — the thread follows new content
+  only while the user is already at the bottom:**
+  - `pinnedRef` tracks whether they're within `NEAR_BOTTOM_PX` (48) of the bottom,
+    updated from the container's `onScroll`. It's a **ref, not state**, because it is
+    read inside the layout effect that runs on the same commit as the content change —
+    state would be one render stale and would scroll on the previous frame's answer.
+  - Opening a chat jumps to the bottom in a **`useLayoutEffect` with `behavior: 'auto'`**.
+    Both halves matter: `useEffect` would paint at the top for one frame and then visibly
+    slide down, and `'smooth'` would animate a position the user should have started at.
+  - New content while pinned → `'smooth'`. New content while scrolled up → **nothing
+    moves**; a gold "Latest" pill (`.chat-jump`) appears and scrolls back down on tap.
+  - `window.visualViewport`'s resize event re-pins when the keyboard opens (it changes
+    the visual viewport without firing scroll or resize on the element) — but only if
+    they hadn't scrolled away.
+  - `.chat-thread` sets `overscroll-behavior: contain` so a fling can't chain to the
+    page, plus `min-height: 0` — without it the flex child refuses to shrink below its
+    content height and pushes the composer off-screen instead of scrolling.
+  - Covered by `src/tests/chatThread.test.jsx`, which stubs the scroll geometry jsdom
+    doesn't implement.
 - `.chat-bubble__text` sets **`overflow-wrap: anywhere`** — do not remove it.
   `white-space: pre-wrap` does not break an unbroken token and `.chat-bubble` has no
   `overflow: hidden`, so a pasted URL rendered 517px of text inside a 243px bubble and
@@ -221,7 +244,11 @@ RIZZING is an AI-powered dating conversation assistant for the Indian market. Us
 
 ### 2. Onboarding (runs once)
 **Part A — Quick prefs (30 seconds):**
-- Hinglish level: three tappable pills — Pure English / Thoda Hindi / Full Hinglish
+- Language mix: three tappable pills — **English / Hindi / Mix**. Values come from
+  `LANGUAGE_OPTIONS` and are the literal strings stored in `hinglish_ratio`
+  (`english` | `hindi` | `mix`), the same vocabulary `src/lib/prefs.js` gives the
+  Profile screen — the two screens cannot drift. The old labels (English / Mix /
+  Hinglish over low/medium/high) had two options meaning the same thing.
 - Emoji use: Never / Sometimes / Har jagah
 - Favourite emojis: grid of 20 common ones, user picks up to 5
 
@@ -262,10 +289,19 @@ Scenario axis mapping:
 ### 3. Home (matches list)
 - Header: RIZZING puzzle-piece logo (`/1.jpg`, the public brand mark / favicon) top-left,
   profile (person silhouette) top-right. The empty state reuses the same logo.
-- List of matches the user has created
-- Each match shows name, stage badge, last opened
-- FAB to add new match
+- Hero: "Your matches" in Playfair over a conversation count, on a `.hero-glow` gold pool.
+  That is the ONLY display-type moment on the screen — everything else is Outfit.
+- List of matches the user has created; cards are `.card-elevated` with a staggered
+  entrance (45ms per index) so the list arrives as a sequence, not a slab.
+- **Exactly one gold control on screen at a time.** With matches, the primary action is the
+  corner `.fab-extended` ("New match" — an extended FAB names its own action). The empty
+  state owns the primary action instead ("Add your first match"), and the corner FAB is
+  **not rendered** there — two gold buttons is two primaries. Pinned by `home.test.jsx`.
+- Loading shows `.skeleton` blocks (a travelling sheen, so it reads as loading rather than
+  as a disabled control), never a spinner.
 - Tap a match → opens the 3-mode entry sheet (see "3-mode chat entry" above)
+- There is **no screenshot / paste / type chooser here** — see the Conversation screen; that
+  feature was dropped from the UI and Home has a single entry path.
 
 ### 4. Conversation screen (core feature)
 **Entry:** tapping a match on Home opens the 3-mode entry sheet (Context / New
@@ -274,8 +310,24 @@ topic / Continue previous — see "3-mode chat entry" above) before landing here
 **Middle:** `ChatThread` of `ChatBubble`s — committed turns from
 `previousChatStore`, then the pending her-message + 3 tone-tagged draft
 replies once generated.
-**Bottom:** A single **messenger composer bar** (`.chat-composer`: one textarea +
-gold circular send button, Enter sends / Shift+Enter newline) while no drafts are up.
+**Bottom:** three states, and the order they're checked in is load-bearing:
+1. `generating` → an inert, **empty** `.chat-composer--busy` with a spinner.
+2. no drafts → the live composer (also the error-recovery state — a failed request
+   leaves `message` intact so the user can retry or edit).
+3. drafts → Customize / Generate another / Send.
+
+State 1 must be checked FIRST. `requestReplies` calls `setDrafts(null)` before awaiting,
+so with only a `!drafts` check the bottom area flipped back to the live composer for the
+whole round-trip — and since the composer is bound to `message`, which still legitimately
+holds her text as the API payload, her original message visibly reappeared in the input
+on every "Generate another". The payload has to stay; the *echo into the input* is the
+bug. Her message is already on screen as a chat bubble; it does not belong in the input
+too. Pinned by `src/tests/conversation.test.jsx` → "does not put the original message
+back in the input while regenerating", which holds the mocked promise open to make the
+in-flight frame observable.
+
+The composer bar itself (`.chat-composer`: one textarea + gold circular send button,
+Enter sends / Shift+Enter newline) is shown while no drafts are up.
 There are NO Paste/Type/Screenshot tabs and **no screenshot/OCR path** — that feature
 was dropped from the UI (zero budget, no vision API). `process-screenshot` still exists
 as an Edge Function but nothing in the app calls it. Once drafts exist the bottom area
@@ -289,13 +341,54 @@ not a one-shot. **Customize** (`CustomizeSheet`) re-calls `generate-replies` wit
 tweak instruction folded into the her_message string.
 
 ### 5. Profile screen (`ProfileScreen.jsx` — built)
-The user's **rizz persona**, not a dating profile:
-- Persona: the 7 personality axes as gold gradient bars (`.persona-track`/`.persona-fill`).
-- Preferences: Hinglish level + emoji use as editable pills — a change writes
-  `hinglish_ratio` / `emoji_frequency` to `personality_profiles` and updates the store.
-- Account: email, plan badge ("Free · ad-supported" — no purchase flow), Terms & Privacy
-  link (opens a sheet reusing `TermsContent`).
-- Actions: redo onboarding (→ /onboarding), log out (signs out + resets stores → /auth).
+The user's **rizz persona**, not a dating profile. Reading order is hero → radar → tone →
+stats → prefs → account, so the identity lands before the numbers.
+- **Mount re-fetch (load-bearing — this was the P0 bug).** ProfileScreen calls
+  `profileStore.load(user.id)` in a mount effect. `useProfileStore.load()` is otherwise
+  only called at explicit sign-in (AuthScreen / CheckEmailScreen) and at the end of
+  onboarding; `App.jsx`'s `authStore.init()` restores the **session** on reload but never
+  the profile. So a screen that trusted the store showed `initialProfile` — every axis at
+  0.5, i.e. a flat **50 across all seven axes** — on any refresh, and stale values after a
+  pick moved the DB row. Do not remove the mount fetch to "avoid a redundant query".
+- **Archetype hero** (`src/lib/archetype.js`): 8 archetypes, each defined by a PAIR of
+  axes; the winner is the pair with the highest summed score. Deterministic, total (no
+  unknown branch), and reduces to "your top two axes name you" without a 21-entry lookup.
+  An untouched profile (spread across the seven axes < `FLAT_SPREAD`) returns `FORMING`
+  instead — a flat radar names nobody, and the screen shows the "still forming" panel
+  rather than drawing it.
+- **Persona radar** (`src/components/PersonaRadar.jsx`): hand-rolled SVG heptagon, gold
+  stroke + translucent radial fill, grows from the centre on mount. No chart library — a
+  regular polygon is ~15 lines of trig. `transform-origin` is set inline in **SVG user
+  units**; a CSS keyword resolves against the element box and grows from the wrong point.
+  A plotted vertex never collapses below `MIN_PLOT` so a low score reads as low, not broken.
+- Numeric bars still exist, behind a collapsible **"See breakdown"** (`.persona-track` /
+  `.persona-fill`) — radar at a glance, numbers on demand.
+- **Tone mix** strip + **stats** tiles read `personality_profiles.pick_history`, which
+  `update-weights` now increments on every send (it previously wrote weights but left
+  pick_history at zero forever).
+- **Preferences are draft-first** (no more save-on-tap): a tap edits local draft state and
+  marks the pill `.pill-pending` (gold outline + dot); a `.save-bar` with Discard /
+  Save changes appears while draft ≠ saved. Save goes through `profileStore.savePatch`,
+  which `.select()`s the updated row — **an RLS-rejected UPDATE returns 2xx with zero rows,
+  so without the returned row a silent failure is indistinguishable from a save.** A failed
+  save keeps the draft and shows an inline retryable error. Every exit from the screen
+  (back, redo onboarding, log out) routes through `leave()`, which raises the
+  Save / Discard / Cancel dialog when dirty — three outcomes, so `window.confirm` can't
+  express it.
+- A preference that was never set reads as `null` (see `src/lib/prefs.js`) and renders with
+  **no pill selected** plus "Not set yet — pick one." Skipping the emoji step in onboarding
+  writes null on purpose rather than guessing a bucket.
+- Account: email, plan badge ("Free · ad-supported" — no purchase flow), **Support** row
+  (`hq@matri6.com`, from `src/lib/support.js`), Terms & Privacy link (sheet reusing
+  `TermsContent`) with a "Need help?" link beside it.
+- `supportMailto(userEmail)` prefills the subject as `RIZZING Support — {email}` so an
+  inbound mail identifies the account. The address is `select-text` because Capacitor
+  routes non-http schemes through `Bridge.launchIntent()`, which wraps `startActivity` in
+  `catch (ActivityNotFoundException) { }` and returns true either way — on a device with no
+  mail client the tap is a **silent no-op with nothing observable from JS** to hang a
+  fallback off. Verified against the Capacitor 6 source in `node_modules/@capacitor/android`.
+- Actions: redo onboarding and log out are both quiet (`.btn-ghost` / muted text) — neither
+  competes with the archetype hero.
 
 ---
 
@@ -399,7 +492,7 @@ User personality:
 - Sarcasm: {score}/10
 - Boldness: {score}/10
 - Escalation pace: {score}/10
-- Hinglish level: {low/medium/high}
+- LANGUAGE: {one of the three LANGUAGE_RULES sentences — see below}
 - Emoji use: {never/sometimes/always}
 
 Conversation stage: {stage}
@@ -415,13 +508,22 @@ Generate exactly 3 replies as JSON:
 }
 
 Rules:
-- Match the user's Hinglish level exactly
+- LANGUAGE, again: {the same rule sentence, restated last}
 - Safe = warm, low risk
 - Witty = clever, confident, light humour
 - Bold = direct, high energy
 - Each reply under 30 words
 - Return ONLY the JSON object, nothing else
 ```
+
+**Language is a full instruction, not a level.** `LANGUAGE_RULES` in `prompt.ts` maps
+`english` / `hindi` / `mix` to three genuinely different sentences (English only; roman-script
+Hindi; code-switched Hinglish). Passing the bare bucket name was ambiguous — "medium"/"mix"
+and "hinglish" told the model the same thing. `normalizeLanguage()` folds the legacy
+`low|medium|high` and a literal `hinglish` into the three, so no stored row is orphaned and
+**no schema migration is needed** (the column is plain text). The same map lives client-side
+in `src/lib/prefs.js`; they can't be shared across the Deno/browser boundary, so if you
+change one, change both.
 
 ### Weight update logic
 After every pick, update the personality_profiles row (one per user, keyed by user_id):
@@ -432,6 +534,22 @@ After every pick, update the personality_profiles row (one per user, keyed by us
 - Edit before send → set was_edited true, store the change in conversation_turns.edit_delta
 - Write own reply (picked = 'override') → append raw text to personality_profiles.raw_overrides array
 - Clamp every weight between 0.1 and 0.9 — never below or above
+
+**Nothing on this path may be silent — that is what hid the frozen-weights bug.** Concretely:
+- `NUDGE_DELTA = 0.05` on a **float** column → one pick moves the /profile display 5 points.
+  (The integer-column hypothesis is ruled out by the symptom: on an int column
+  `0.5 + 0.05` rounds to **1**, which would read 100, not 50.)
+- Every `.update()` in `update-weights` carries a `.select()`. PostgREST answers an
+  RLS-rejected update with 2xx and **zero rows affected**, so without the returned row a
+  missing UPDATE policy looks exactly like a successful nudge. Zero rows → `console.error`
+  naming the RLS policy to check.
+- The function returns `before` / `after` (all seven axes, read in full). ConversationFlow
+  logs them with `console.table` and `console.warn`s on rejection. The old
+  `updateWeights(...).catch(() => {})` swallowed RLS failures, 500s and network errors alike.
+- A failed `matches` bump is logged but non-fatal — it must not cost the user their nudge.
+- `pick_history` is incremented here (safe/witty/bold/override; **not** 'skipped'). It was
+  specified from the start but never actually written, so the Profile tone-mix strip and
+  stats had nothing to read.
 
 ---
 
@@ -536,8 +654,10 @@ Body: { image_base64, user_id }
 POST /functions/v1/update-weights
 Body: { user_id, match_id, turn_id, picked, sent_text, was_edited }
 - Updates personality_profiles weights based on pick
+- Increments the matching pick_history counter
 - If was_edited, stores diff in raw_overrides
 - Updates match.message_count + last_opened
+- Returns { success, message_count, nudged, before, after } — see "Weight update logic"
 
 ---
 
@@ -579,6 +699,9 @@ rizzing/
 │   │   ├── supabase.js    (Supabase client)
 │   │   ├── auth.js        (auth helpers)
 │   │   ├── legal.js       (Terms/Privacy PLACEHOLDER copy + TERMS_VERSION)
+│   │   ├── prefs.js       (language/emoji vocabulary + legacy-value normalizers)
+│   │   ├── archetype.js   (8 rizz archetypes + pair-scoring derivation)
+│   │   ├── support.js     (SUPPORT_EMAIL + supportMailto)
 │   │   └── api.js         (calls to Edge Functions)
 │   ├── store/
 │   │   ├── authStore.js         (Zustand — user session)
@@ -603,6 +726,7 @@ rizzing/
 │       ├── PageTransition.jsx   (shared route/step transition wrapper)
 │       ├── ChatBubble.jsx       (ChatBubble + TypingIndicator)
 │       ├── ChatThread.jsx
+│       ├── PersonaRadar.jsx     (hand-rolled SVG radar — no chart dependency)
 │       └── TermsContent.jsx     (shared T&C body — onboarding + profile)
 ├── supabase/
 │   └── functions/
@@ -717,6 +841,15 @@ redirect filter was added by hand to `android/app/src/main/AndroidManifest.xml`:
 `${applicationId}` is a Gradle placeholder resolving to `com.matri6.rizzing`, so the
 scheme cannot drift from the bundle ID. `launchMode="singleTask"` (Capacitor's default)
 makes the link reuse the running task.
+
+Two more hand-added manifest entries (same caveat — `cap add android` wipes them):
+- `android:windowSoftInputMode="adjustResize"` on the activity. It was unset, leaving the
+  keyboard behaviour as `ADJUST_UNSPECIFIED` for the system to guess — unacceptable for a
+  chat screen. `adjustResize` is what makes the visual viewport actually shrink, which is
+  what `100dvh` (`.chat-screen`, `.app-shell`) and ChatThread's `visualViewport` listener
+  key off to keep the newest message above the composer.
+- A `<queries>` block declaring the `mailto` SENDTO intent, so mail apps are visible to
+  resolution on API 30+ (this app targets 34).
 
 **This is necessary but NOT sufficient.** The filter reopens the app; it does not route
 the webview to `/auth/callback`, because the webview is served from `localhost` and never

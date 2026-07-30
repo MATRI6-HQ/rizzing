@@ -25,7 +25,7 @@ vi.mock('../lib/supabase', () => {
 })
 
 import ConversationFlow, { detectStage } from '../screens/Conversation/ConversationFlow'
-import { generateReplies } from '../lib/api'
+import { generateReplies, updateWeights } from '../lib/api'
 import { useMatchStore } from '../store/matchStore'
 import { usePreviousChatStore } from '../store/previousChatStore'
 
@@ -151,6 +151,41 @@ describe('ConversationFlow', () => {
     expect(screen.getByText('Send →')).toBeDisabled()
   })
 
+  // Regression: "Generate another" called setDrafts(null) before awaiting the request,
+  // which flipped the bottom area back to the composer — and the composer is bound to
+  // `message`, which still holds her original text as the API payload. So the message
+  // visibly reappeared in the input for the whole round-trip. The payload must stay,
+  // the visible input must not come back. Holding the promise open is what makes the
+  // in-flight frame observable; with an instantly-resolving mock it's invisible.
+  it('does not put the original message back in the input while regenerating', async () => {
+    let release
+    generateReplies.mockImplementationOnce(async () => ({
+      safe: 'Safe reply here', witty: 'Witty reply here', bold: 'Bold reply here',
+    }))
+    renderFlow()
+    await generate('kya kar rahe ho')
+
+    generateReplies.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        release = () => resolve({ safe: 'S2', witty: 'W2', bold: 'B2' })
+      }),
+    )
+    fireEvent.click(screen.getByText('Generate another'))
+    await waitFor(() => expect(generateReplies).toHaveBeenCalledTimes(2))
+
+    // Mid-flight: no editable composer holding her text.
+    const live = screen.queryByPlaceholderText('Paste or type her message…')
+    expect(live).toBeNull()
+    expect(screen.queryByDisplayValue('kya kar rahe ho')).toBeNull()
+    // The message is still the payload — it just isn't echoed into the input.
+    expect(generateReplies.mock.calls[1][0].her_message).toBe('kya kar rahe ho')
+    // ...and it is still shown where it belongs: as her chat bubble.
+    expect(screen.getByText('kya kar rahe ho')).toBeInTheDocument()
+
+    release()
+    await waitFor(() => expect(screen.getByText('B2')).toBeInTheDocument())
+  })
+
   it('Customize folds the instruction into a fresh generate-replies call', async () => {
     renderFlow()
     await generate()
@@ -161,5 +196,79 @@ describe('ConversationFlow', () => {
 
     await waitFor(() => expect(generateReplies).toHaveBeenCalledTimes(2))
     expect(generateReplies.mock.calls[1][0].her_message).toMatch(/More flirty/)
+  })
+
+  // The P0 weight bug had two halves on this side: the pick was never confirmed to have
+  // persisted, and any failure was swallowed by `.catch(() => {})` so nothing was ever
+  // observable. Both are pinned here.
+  describe('weight update persistence', () => {
+    it('sends the picked tone to update-weights on Send', async () => {
+      renderFlow('m1')
+      await generate()
+      fireEvent.click(screen.getByText('Bold reply here'))
+      fireEvent.click(screen.getByText('Send →'))
+
+      await waitFor(() => expect(updateWeights).toHaveBeenCalledTimes(1))
+      expect(updateWeights.mock.calls[0][0]).toMatchObject({
+        match_id: 'm1',
+        picked: 'bold',
+        sent_text: 'Bold reply here',
+        was_edited: false,
+      })
+    })
+
+    it('logs the before/after weights the function reports', async () => {
+      const table = vi.spyOn(console, 'table').mockImplementation(() => {})
+      vi.spyOn(console, 'info').mockImplementation(() => {})
+      updateWeights.mockResolvedValueOnce({
+        success: true,
+        nudged: ['boldness', 'escalation'],
+        before: { boldness: 0.5, escalation: 0.5 },
+        after: { boldness: 0.55, escalation: 0.55 },
+      })
+
+      renderFlow('m1')
+      await generate()
+      fireEvent.click(screen.getByText('Bold reply here'))
+      fireEvent.click(screen.getByText('Send →'))
+
+      await waitFor(() => expect(table).toHaveBeenCalledTimes(1))
+      expect(table.mock.calls[0][0]).toEqual({
+        before: { boldness: 0.5, escalation: 0.5 },
+        after: { boldness: 0.55, escalation: 0.55 },
+      })
+      vi.restoreAllMocks()
+    })
+
+    it('warns instead of failing silently when the update is rejected', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      updateWeights.mockRejectedValueOnce(new Error('row-level security'))
+
+      renderFlow('m1')
+      await generate()
+      fireEvent.click(screen.getByText('Safe reply here'))
+      fireEvent.click(screen.getByText('Send →'))
+
+      await waitFor(() => expect(warn).toHaveBeenCalled())
+      expect(warn.mock.calls[0].join(' ')).toMatch(/update-weights failed/)
+      // The send itself still succeeds — a failed nudge must not cost the user their reply.
+      expect(screen.getByText(/Sent as safe/)).toBeInTheDocument()
+      vi.restoreAllMocks()
+    })
+  })
+
+  it('offers the support address after repeated generation failures', async () => {
+    generateReplies.mockRejectedValue(new Error('The assistant is busy right now.'))
+    renderFlow('m1')
+    const input = screen.getByPlaceholderText('Paste or type her message…')
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      fireEvent.change(input, { target: { value: 'hey' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Generate replies' }))
+      // eslint-disable-next-line no-await-in-loop
+      await waitFor(() => expect(generateReplies).toHaveBeenCalledTimes(attempt + 1))
+    }
+
+    expect(await screen.findByText('hq@matri6.com')).toBeInTheDocument()
   })
 })

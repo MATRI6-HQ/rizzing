@@ -32,7 +32,16 @@ describe('HomeScreen', () => {
     expect(screen.getByText('No matches yet')).toBeInTheDocument()
   })
 
-  it('renders the FAB button', () => {
+  // The empty state owns the primary action, so the corner FAB stands down there —
+  // exactly one gold control on screen at a time.
+  it('the empty state carries the primary add action', () => {
+    renderHome()
+    expect(screen.getByRole('button', { name: /Add your first match/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add match' })).not.toBeInTheDocument()
+  })
+
+  it('renders the corner FAB once there is at least one match', () => {
+    useMatchStore.setState({ matches: [{ id: 'm1', name: 'Aisha' }] })
     renderHome()
     expect(screen.getByRole('button', { name: 'Add match' })).toBeInTheDocument()
   })

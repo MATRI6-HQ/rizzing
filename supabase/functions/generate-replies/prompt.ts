@@ -71,6 +71,41 @@ export const BOLD_BY_STAGE: Record<string, { canPropose: string; moves: string }
   },
 }
 
+/**
+ * Language mix. `hinglish_ratio` stores english|hindi|mix (see src/lib/prefs.js); the
+ * legacy low|medium|high values and a literal 'hinglish' are mapped here rather than
+ * migrated, so an old row never falls through to the wrong instruction. The three cases
+ * must read as three genuinely different instructions — "mix" used to be indistinguishable
+ * from "hinglish", which is the confusion this replaced.
+ */
+const LEGACY_LANGUAGE: Record<string, string> = {
+  low: "english",
+  medium: "mix",
+  high: "hindi",
+  hinglish: "mix",
+}
+
+export const LANGUAGE_RULES: Record<string, string> = {
+  english:
+    "Write in English only. No Hindi words, no Devanagari — plain, natural English texting.",
+  hindi:
+    "Write in Hindi, in roman script the way Indians actually text (\"kya kar rahi ho\", not " +
+    "Devanagari). Reach for English only where there is no natural Hindi word.",
+  mix:
+    "Write in Hinglish — code-switch between English and roman-script Hindi inside the same " +
+    "message, the way he actually texts. Neither language should dominate.",
+}
+
+export const DEFAULT_LANGUAGE = "mix"
+
+/** Any stored hinglish_ratio → one of english|hindi|mix. */
+export function normalizeLanguage(value: unknown): string {
+  if (!value) return DEFAULT_LANGUAGE
+  const v = String(value).toLowerCase()
+  if (v in LANGUAGE_RULES) return v
+  return LEGACY_LANGUAGE[v] ?? DEFAULT_LANGUAGE
+}
+
 /** Personality dials as stored in personality_profiles (0-1 floats). */
 export type Profile = {
   hinglish_ratio?: string
@@ -115,6 +150,7 @@ export function buildSystem(
   turns: Turn[],
 ): string {
   const bold = BOLD_BY_STAGE[stage] ?? BOLD_BY_STAGE["rapport"]
+  const language = LANGUAGE_RULES[normalizeLanguage(p.hinglish_ratio)]
   return (
     `You are RIZZING, a dating-reply assistant for Indian users on apps like Tinder, ` +
     `Bumble and Hinge. Write in the user's own texting voice — like a real person, not an AI.\n\n` +
@@ -124,7 +160,8 @@ export function buildSystem(
     `- Sarcasm: ${dial(p.sarcasm, 0.5)}/10\n` +
     `- Boldness: ${dial(p.boldness, 0.6)}/10\n` +
     `- Escalation pace: ${dial(p.escalation, 0.6)}/10\n` +
-    `- Hinglish level: ${p.hinglish_ratio ?? "medium"}. Emoji use: ${p.emoji_frequency ?? "sometimes"}.\n\n` +
+    `- LANGUAGE: ${language}\n` +
+    `- Emoji use: ${p.emoji_frequency ?? "sometimes"}.\n\n` +
     `CONVERSATION STAGE: ${stage}.\n\n` +
     buildHistory(turns) +
     `Reply to her last message with exactly three options, as a JSON object whose keys are ` +
@@ -147,7 +184,7 @@ export function buildSystem(
     `engage with.\n` +
     `- Charming and confident, never crude, creepy or disrespectful.\n\n` +
     `Rules:\n` +
-    `- Match the user's Hinglish level and emoji preference exactly.\n` +
+    `- LANGUAGE, again: ${language} Match his emoji preference exactly too.\n` +
     `- Each reply under 30 words. The three must be clearly different in energy.\n` +
     // Restated last on purpose. The same gate appears above next to the bold definition,
     // but models weight the end of a prompt most heavily and Gemini in particular still

@@ -8,10 +8,14 @@ import { useMatchStore } from '../../store/matchStore'
 import { usePreviousChatStore } from '../../store/previousChatStore'
 import ChatBubble, { TypingIndicator } from '../../components/ChatBubble'
 import ChatThread from '../../components/ChatThread'
+import { SUPPORT_EMAIL, supportMailto } from '../../lib/support'
 import CustomizeSheet from './CustomizeSheet'
 
 // ── Tunables (no magic numbers) ──────────────────────────────────────────────
 const TOAST_DURATION_MS = 1800 // how long the "remember this" toast stays visible
+
+// Consecutive generation failures before we stop assuming it's a blip and offer a human.
+const FAILURES_BEFORE_SUPPORT = 2
 
 // Stage thresholds (rule-based MVP). Upper bound is inclusive.
 const STAGE_RULES = [
@@ -69,6 +73,23 @@ function MiniSpinner() {
   )
 }
 
+/** Inline failure note. Surfaces the support address once it stops looking like a blip. */
+function ErrorNote({ message, showSupport, userEmail }) {
+  return (
+    <div className="text-center mt-3">
+      <p className="text-red-400 text-xs tracking-wide">{message}</p>
+      {showSupport && (
+        <p className="text-[11px] text-text-muted mt-1.5">
+          Still not working?{' '}
+          <a href={supportMailto(userEmail)} className="text-gold hover:opacity-70">
+            {SUPPORT_EMAIL}
+          </a>
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── Screen ───────────────────────────────────────────────────────────────────
 export default function ConversationFlow() {
   const navigate = useTransitionNavigate()
@@ -110,6 +131,7 @@ export default function ConversationFlow() {
   const [toast, setToast] = useState(false)
   const [sentTone, setSentTone] = useState(null)
   const [error, setError] = useState('')
+  const [failures, setFailures] = useState(0)
 
   const stage = detectStage(turnCount)
 
@@ -148,8 +170,10 @@ export default function ConversationFlow() {
         user_id: user?.id,
       })
       setDrafts(result)
+      setFailures(0)
     } catch (err) {
       setError(err?.message ?? 'Could not generate replies')
+      setFailures((n) => n + 1)
     } finally {
       setGenerating(false)
     }
@@ -213,7 +237,9 @@ export default function ConversationFlow() {
       /* keep the UX flowing even if the write fails */
     }
 
-    // Fire-and-forget: bump the match + nudge weights in the background, don't block the UX.
+    // Background (doesn't block the UX) but NOT silent: a swallowed rejection here is what
+    // made the frozen-weights bug invisible for so long. The before/after table is the
+    // observable proof that a pick actually moved the persona.
     updateWeights({
       user_id: user?.id,
       match_id: matchId,
@@ -221,7 +247,16 @@ export default function ConversationFlow() {
       picked: selectedTone,
       sent_text: replyText,
       was_edited: false,
-    }).catch(() => {})
+    })
+      .then((res) => {
+        console.info('[rizzing] update-weights →', res)
+        if (res?.before && Object.keys(res.before).length > 0) {
+          console.table({ before: res.before, after: res.after })
+        }
+      })
+      .catch((err) => {
+        console.warn('[rizzing] update-weights failed — persona not updated:', err?.message ?? err)
+      })
 
     appendTurn(matchId, { role: 'incoming', text: message.trim() })
     appendTurn(matchId, { role: 'outgoing', text: replyText, tone: selectedTone })
@@ -240,7 +275,7 @@ export default function ConversationFlow() {
   const canGenerate = message.trim() !== '' && !generating
 
   return (
-    <div className="min-h-screen bg-ambient flex items-center justify-center">
+    <div className="chat-screen bg-ambient flex items-center justify-center">
       <div className="app-shell flex flex-col relative overflow-hidden">
         {/* Header */}
         <header className="h-14 px-4 flex items-center gap-3 border-b border-white/[0.04] shrink-0">
@@ -281,7 +316,7 @@ export default function ConversationFlow() {
         </header>
 
         <ChatThread
-          className="flex-1 px-5 pt-5 pb-3"
+          className="px-5 pt-5 pb-3"
           autoScrollKey={`${thread.length}-${drafts ? 1 : 0}-${generating ? 1 : 0}`}
         >
           {thread.map((t, i) => (
@@ -321,10 +356,24 @@ export default function ConversationFlow() {
           )}
         </ChatThread>
 
-        {/* Bottom area: messenger composer, or the customize/regenerate/send controls
-            once drafts exist. No Paste/Type/Screenshot tabs — one input, like a DM. */}
+        {/* Bottom area — three states, in this order for a reason:
+            1. generating  → an inert, EMPTY composer. `message` still holds her text as
+               the API payload, so falling through to the live composer below would echo
+               it back into the input for the whole round-trip (the regenerate bug). Her
+               message is already on screen as a chat bubble; it doesn't belong here too.
+            2. no drafts   → the live composer. Also the error-recovery state: a failed
+               request leaves `message` intact so the user can retry or edit.
+            3. drafts      → customize / regenerate / send.
+            No Paste/Type/Screenshot tabs — one input, like a DM. */}
         <div className="px-4 pb-6 pt-2 shrink-0">
-          {!drafts ? (
+          {generating ? (
+            <div className="chat-composer chat-composer--busy" aria-busy="true">
+              <textarea rows={1} value="" placeholder="Generating replies…" disabled readOnly />
+              <button type="button" disabled aria-label="Generating replies" className="chat-send">
+                <MiniSpinner />
+              </button>
+            </div>
+          ) : !drafts ? (
             <>
               <div className="chat-composer">
                 <textarea
@@ -342,11 +391,15 @@ export default function ConversationFlow() {
                   aria-label="Generate replies"
                   className="press chat-send"
                 >
-                  {generating ? <MiniSpinner /> : <SendIcon />}
+                  <SendIcon />
                 </button>
               </div>
               {error && (
-                <p className="text-red-400 text-xs tracking-wide text-center mt-3">{error}</p>
+                <ErrorNote
+                  message={error}
+                  showSupport={failures >= FAILURES_BEFORE_SUPPORT}
+                  userEmail={user?.email}
+                />
               )}
             </>
           ) : (
@@ -377,7 +430,13 @@ export default function ConversationFlow() {
               >
                 {sending ? 'Sending…' : 'Send →'}
               </button>
-              {error && <p className="text-red-400 text-xs tracking-wide text-center">{error}</p>}
+              {error && (
+                <ErrorNote
+                  message={error}
+                  showSupport={failures >= FAILURES_BEFORE_SUPPORT}
+                  userEmail={user?.email}
+                />
+              )}
             </div>
           )}
         </div>

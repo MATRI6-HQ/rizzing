@@ -208,10 +208,59 @@ body {
 
 /* ── Chat bubble system (Onboarding scenarios + ConversationFlow share these) ── */
 
+/* Wrapper exists so the "jump to latest" pill can be positioned against the viewport
+   of the thread rather than against its scrolling content (where it would scroll away). */
+.chat-thread-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 .chat-thread {
   position: relative;
   overflow-y: auto;
   isolation: isolate;
+  flex: 1;
+  /* Without min-height:0 a flex child refuses to shrink below its content height, so
+     the container grows instead of scrolling and the composer gets pushed off-screen. */
+  min-height: 0;
+  /* Keep the fling inside the thread: no rubber-banding the whole page behind it, and
+     no scroll chaining to <body> when you hit either end. */
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Appears only when content arrives while the user is reading history. */
+.chat-jump {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  margin-left: -44px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: #171717;
+  border: 0.5px solid rgba(212, 168, 67, 0.35);
+  color: #d4a843;
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  animation: page-enter 180ms ease-out backwards;
+}
+/* Centred with a fixed negative margin rather than translateX(-50%) so it can't
+   fight .press, which animates `scale` on the same element. */
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-jump {
+    animation: none;
+  }
 }
 
 /* Faint grain so the near-black background reads as atmosphere, not a flat fill.
@@ -328,19 +377,27 @@ body {
   padding: 14px 16px;
   width: fit-content;
 }
+/* A travelling left→right wave, not a pulse.
+   The stagger alone was never the problem — the dots were already offset 150/300ms.
+   What killed the directional read was that the lift occupied 60% of a 1s cycle while
+   the dots only moved 4px and only dimmed to 0.5: adjacent dots overlapped so heavily,
+   at such similar brightness, that the eye integrated them into one shimmer. The wave
+   reads now because the lit state is narrow (peak at 22%, at rest by 45%) and
+   high-contrast (0.28 → 1), so at any instant essentially ONE dot is lit and the lit
+   position is what moves rightward. Peaks land at ~242 / 392 / 542ms. */
 .typing-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: #9b9690;
-  animation: typing-bounce 1s ease-in-out infinite;
+  animation: typing-wave 1.1s ease-in-out infinite;
 }
 .typing-dot:nth-child(2) { animation-delay: 150ms; }
 .typing-dot:nth-child(3) { animation-delay: 300ms; }
 
-@keyframes typing-bounce {
-  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
-  30% { transform: translateY(-4px); opacity: 1; }
+@keyframes typing-wave {
+  0%, 45%, 100% { transform: translateY(0); opacity: 0.28; }
+  22% { transform: translateY(-7px); opacity: 1; }
 }
 
 /* Gold circular FAB — scenario "advance" control */
@@ -412,6 +469,10 @@ body {
   .fab-next:not(:disabled),
   .typing-dot {
     animation: none;
+  }
+  /* Static but still legible as "working" — three even dots, no travel. */
+  .typing-dot {
+    opacity: 0.55;
   }
 }
 
@@ -492,6 +553,24 @@ body {
 .chat-composer textarea::placeholder {
   color: #5c5852;
 }
+/* In-flight state: present so the bottom bar keeps its height (no layout jump when a
+   request starts), but inert and empty — her message is on screen as a bubble, and
+   echoing it back into the input is the regenerate bug this replaced. */
+.chat-composer--busy {
+  opacity: 0.55;
+}
+.chat-composer--busy textarea {
+  cursor: default;
+}
+
+/* Conversation root. Uses dvh so the column tracks the visual viewport when the
+   Android keyboard opens — 100vh is the *large* viewport and does not shrink, which
+   is what pushes the composer under the keyboard. The vh line is the fallback for
+   WebViews predating dvh. */
+.chat-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
 .chat-send {
   flex-shrink: 0;
   width: 40px;
@@ -529,6 +608,273 @@ body {
   background: linear-gradient(90deg, #b08828, #d4a843, #e8c56f);
   box-shadow: 0 0 10px rgba(212, 168, 67, 0.35);
   transition: width 500ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+/* ── Elevated card ────────────────────────────────────────────────────────────
+   .card-rizzing sits flush on #0d0d0d. This adds the two things that lift it: a 1px
+   top highlight (inset, so it reads as a lit edge rather than a border) and a soft
+   drop shadow. The near-invisible vertical gradient stops the fill reading as flat. */
+.card-elevated {
+  background: linear-gradient(180deg, #1b1b1b 0%, #161616 100%);
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 18px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+/* ── Persona radar ────────────────────────────────────────────────────────────
+   Grows from the centre on mount. transform-origin is set inline from the SVG's own
+   centre coordinates — SVG user units, not the element box, so a CSS keyword would
+   land in the wrong place. */
+.radar-shape {
+  animation: radar-grow 720ms cubic-bezier(0.2, 0.8, 0.3, 1) backwards;
+}
+@keyframes radar-grow {
+  from {
+    transform: scale(0.12);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.radar-vertex {
+  animation: radar-dot 400ms ease-out backwards;
+}
+@keyframes radar-dot {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ── Tone mix strip (safe / witty / bold pick distribution) ────────────────── */
+.tone-strip {
+  display: flex;
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.tone-seg {
+  height: 100%;
+  transition: width 700ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.tone-seg--safe {
+  background: linear-gradient(180deg, #4aa06d, #3d8b5e);
+}
+.tone-seg--witty {
+  background: linear-gradient(180deg, #e8c56f, #d4a843);
+}
+.tone-seg--bold {
+  background: linear-gradient(180deg, #d5604a, #c4503a);
+}
+
+/* ── Stat tile ────────────────────────────────────────────────────────────── */
+.stat-tile {
+  flex: 1;
+  min-width: 0;
+  padding: 14px 10px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012));
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  text-align: center;
+}
+.stat-tile__value {
+  font-family: 'Playfair Display', serif;
+  font-size: 24px;
+  line-height: 1.1;
+  color: #f0ede8;
+}
+.stat-tile__label {
+  display: block;
+  margin-top: 5px;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #5c5852;
+}
+
+/* ── Preference pills: pending (edited but unsaved) state ─────────────────── */
+.pill-pending {
+  border-color: rgba(212, 168, 67, 0.55) !important;
+  color: #e8c56f !important;
+  background: rgba(212, 168, 67, 0.05) !important;
+  box-shadow: 0 0 0 1px rgba(212, 168, 67, 0.12);
+}
+/* The "unsaved" dot. Pseudo-element so the pill markup stays a plain button. */
+.pill-pending::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #d4a843;
+  box-shadow: 0 0 6px rgba(212, 168, 67, 0.8);
+}
+
+/* Sticky action bar revealed inside the Preferences card when draft ≠ saved. */
+.save-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  animation: page-enter 200ms ease-out backwards;
+}
+
+/* Quiet secondary button — used for "redo onboarding" and Discard. */
+.btn-ghost {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 12px;
+  color: #9b9690;
+  background: transparent;
+  font-size: 13px;
+  padding: 11px 14px;
+  cursor: pointer;
+  transition: color 160ms, border-color 160ms, background 160ms;
+}
+.btn-ghost:hover:not(:disabled) {
+  color: #f0ede8;
+  border-color: rgba(212, 168, 67, 0.3);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Compact gold button for inline confirmations (save bar, dialog). */
+.btn-gold-sm {
+  background: #d4a843;
+  color: #0d0d0d;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 600;
+  font-size: 13px;
+  border-radius: 12px;
+  padding: 11px 16px;
+  cursor: pointer;
+  transition: background 160ms, box-shadow 160ms, scale 100ms;
+}
+.btn-gold-sm:hover:not(:disabled) {
+  background: #dfb84e;
+  box-shadow: 0 4px 18px rgba(212, 168, 67, 0.3);
+}
+.btn-gold-sm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Transient confirmation toast (preferences saved). */
+.toast-rizzing {
+  position: fixed;
+  bottom: 26px;
+  left: 50%;
+  margin-left: -110px;
+  width: 220px;
+  z-index: 60;
+  text-align: center;
+  padding: 11px 14px;
+  border-radius: 999px;
+  background: #1c1c1c;
+  border: 1px solid rgba(212, 168, 67, 0.35);
+  color: #e8c56f;
+  font-size: 13px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.6);
+  animation: page-enter 220ms ease-out backwards;
+}
+
+/* ── Home hero ────────────────────────────────────────────────────────────────
+   A single warm pool of light behind the headline. Sits under the content and never
+   takes pointer events, so it can overlap freely. */
+.hero-glow {
+  position: absolute;
+  top: -120px;
+  left: 50%;
+  margin-left: -190px;
+  width: 380px;
+  height: 300px;
+  pointer-events: none;
+  background: radial-gradient(closest-side, rgba(212, 168, 67, 0.16), transparent 72%);
+  filter: blur(6px);
+}
+
+/* Extended FAB — the one primary action on Home. Wider than a bare + so the action
+   names itself; the label is hidden below 340px where the column gets tight. */
+.fab-extended {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 20px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #e0b551, #d4a843);
+  color: #0d0d0d;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 8px 30px rgba(212, 168, 67, 0.38);
+  transition: box-shadow 180ms, transform 180ms, scale 100ms;
+}
+@media (hover: hover) {
+  .fab-extended:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.3),
+      0 12px 38px rgba(212, 168, 67, 0.5);
+  }
+}
+@media (max-width: 339px) {
+  .fab-extended__label {
+    display: none;
+  }
+  .fab-extended {
+    padding: 0 16px;
+  }
+}
+
+/* Content-load skeleton — a travelling sheen, not a pulse, so it reads as loading
+   rather than as a disabled control. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035);
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.055), transparent);
+  animation: skeleton-sheen 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-sheen {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .radar-shape,
+  .radar-vertex,
+  .save-bar,
+  .toast-rizzing,
+  .skeleton::after {
+    animation: none;
+  }
+  .tone-seg,
+  .persona-fill {
+    transition: none;
+  }
 }
 
 /* ── Consent checkbox ─────────────────────────────────────────────────────── */
