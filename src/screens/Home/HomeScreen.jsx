@@ -1,36 +1,20 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useTransitionNavigate } from '../../components/PageTransition'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/authStore'
 import { useMatchStore } from '../../store/matchStore'
 import { usePreviousChatStore } from '../../store/previousChatStore'
+import Wordmark from '../../components/Wordmark'
+import FooterNav from '../../components/FooterNav'
 import EntryModeSheet from './EntryModeSheet'
 
 // ── Inline icons (no icon library) ───────────────────────────────────────────
-function PersonIcon() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="8" r="4" />
-      <path d="M4 20c0-4 4-6 8-6s8 2 8 6" />
-    </svg>
-  )
-}
-
 function ChevronIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-30 shrink-0">
       <path d="M9 6l6 6-6 6" />
-    </svg>
-  )
-}
-
-function PlusIcon() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 5v14M5 12h14" />
     </svg>
   )
 }
@@ -81,6 +65,7 @@ export default function HomeScreen() {
   const [adding, setAdding] = useState(false)
   const [sheetError, setSheetError] = useState('')
   const [entryMatch, setEntryMatch] = useState(null)
+  const [searchParams, setSearchParams] = useSearchParams()
   const getSlot = usePreviousChatStore((s) => s.getSlot)
   const startFresh = usePreviousChatStore((s) => s.startFresh)
   const continuePrevious = usePreviousChatStore((s) => s.continuePrevious)
@@ -109,6 +94,16 @@ export default function HomeScreen() {
       cancelled = true
     }
   }, [user])
+
+  // The footer's + on Refer has no sheet of its own, so it routes here with ?add=1.
+  // The param is consumed immediately (replace, so it leaves no history entry) —
+  // otherwise closing the sheet would leave ?add=1 in the URL and a refresh would
+  // reopen it.
+  useEffect(() => {
+    if (searchParams.get('add') !== '1') return
+    setSheetOpen(true)
+    setSearchParams({}, { replace: true })
+  }, [searchParams, setSearchParams])
 
   function closeSheet() {
     setSheetOpen(false)
@@ -152,21 +147,11 @@ export default function HomeScreen() {
   return (
     <div className="min-h-screen bg-ambient flex items-center justify-center">
       <div className="app-shell flex flex-col relative overflow-hidden">
-        {/* Top bar — RIZZING puzzle-piece logo on the left, profile on the right */}
-        <header className="h-14 px-6 flex items-center justify-between border-b border-white/[0.04]">
-          <img
-            src={LOGO_SRC}
-            alt="RIZZING"
-            className="h-9 w-9 rounded-lg object-cover shrink-0"
-          />
-          <button
-            type="button"
-            onClick={() => navigate('/profile')}
-            aria-label="Profile"
-            className="press icon-chip w-10 h-10 text-text-primary opacity-70 hover:opacity-100 cursor-pointer"
-          >
-            <PersonIcon />
-          </button>
+        {/* Top bar — the RIZZING wordmark. The profile button that used to sit on the
+            right moved into FooterNav: two entry points to /profile on one screen is
+            one too many, and the footer is the screen's nav now. */}
+        <header className="h-14 px-6 flex items-center justify-center border-b border-white/[0.04] shrink-0">
+          <Wordmark />
         </header>
 
         {/* Content */}
@@ -195,17 +180,19 @@ export default function HomeScreen() {
               Add whoever you're talking to. Paste her message, get three replies in your
               voice, send the one that sounds like you.
             </p>
+            {/* Ghost, not gold: the footer's + is the screen's one gold control now.
+                The affordance stays (a new user still gets a button to press) without
+                putting two primaries on the same screen. */}
             <button
               type="button"
               onClick={() => setSheetOpen(true)}
-              className="press fab-extended mt-8"
+              className="press btn-ghost mt-8 px-6"
             >
-              <PlusIcon />
-              <span className="fab-extended__label">Add your first match</span>
+              Add your first match
             </button>
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto px-6 pt-7 pb-28">
+          <div className="flex-1 overflow-y-auto px-6 pt-7 pb-6">
             {/* Hero — one display moment, then the list. */}
             <div className="relative mb-7">
               <div className="hero-glow" aria-hidden="true" />
@@ -224,18 +211,9 @@ export default function HomeScreen() {
           </div>
         )}
 
-        {/* Primary action — one gold control, and it names itself. */}
-        {!loading && matches.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setSheetOpen(true)}
-            aria-label="Add match"
-            className="press fab-extended absolute bottom-6 right-6"
-          >
-            <PlusIcon />
-            <span className="fab-extended__label">New match</span>
-          </button>
-        )}
+        {/* Bottom nav — its centre + is the primary "add match" action, which is why
+            the corner .fab-extended that used to live here is gone. */}
+        <FooterNav active="home" onAdd={() => setSheetOpen(true)} />
 
         {/* 3-mode entry sheet */}
         {entryMatch && (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTransitionNavigate } from '../../components/PageTransition'
-import { signIn, signUp } from '../../lib/auth'
+import { signIn, signUp, signInWithGoogle } from '../../lib/auth'
 import { useAuthStore } from '../../store/authStore'
 import { useProfileStore } from '../../store/profileStore'
 
@@ -35,6 +35,33 @@ function Spinner() {
   )
 }
 
+// Same spinner geometry as above, in gold — the Google button is a dark outline
+// button, so the black stroke that reads correctly on .btn-gold would vanish here.
+function SpinnerGold() {
+  return (
+    <svg className="animate-spin h-5 w-5 text-gold" viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor"
+        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+    </svg>
+  )
+}
+
+// Google's four-colour "G", inlined (no icon library, per design rules). The brand
+// mark itself must keep Google's colours — their branding terms don't allow
+// recolouring it — so this is the one place in the app that isn't on the RIZZING
+// palette. Everything around it (border, fill, type) is.
+function GoogleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+      <path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z" />
+      <path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.1-7.45 2.1-5.73 0-10.58-3.87-12.31-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z" />
+      <path fill="#FBBC05" d="M11.69 28.18C11.25 26.86 11 25.45 11 24s.25-2.86.69-4.18v-5.7H4.34C2.85 17.09 2 20.45 2 24s.85 6.91 2.34 9.88l7.35-5.7z" />
+      <path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z" />
+    </svg>
+  )
+}
+
 export default function AuthScreen() {
   const navigate = useTransitionNavigate()
   const loadProfile = useProfileStore((s) => s.load)
@@ -50,6 +77,10 @@ export default function AuthScreen() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  // Kept separate from `loading` / `error` so a Google failure is reported under the
+  // Google button rather than above the divider, where it would read as a form error.
+  const [googleLoading, setGoogleLoading] = useState(false)
+  const [googleError, setGoogleError] = useState('')
 
   const isSignup = mode === 'signup'
 
@@ -68,6 +99,26 @@ export default function AuthScreen() {
     setMode(isSignup ? 'signin' : 'signup')
     setError('')
     setNotice('')
+    setGoogleError('')
+  }
+
+  /**
+   * On success this never returns — signInWithOAuth navigates the browser to Google.
+   * So the spinner is deliberately NOT cleared on the happy path: the button stays
+   * busy for the handful of frames before the page goes away, instead of flicking
+   * back to its resting state and looking like the tap did nothing.
+   */
+  async function handleGoogle() {
+    if (googleLoading || loading) return
+    setGoogleError('')
+    setError('')
+    setGoogleLoading(true)
+    try {
+      await signInWithGoogle()
+    } catch (err) {
+      setGoogleError(err?.message ?? 'Could not reach Google. Try again.')
+      setGoogleLoading(false)
+    }
   }
 
   async function handleSubmit(e) {
@@ -154,7 +205,10 @@ export default function AuthScreen() {
         </h2>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        {/* w-full: the form was shrink-to-fit (its width came from the longest label,
+            ~285px in a 440px shell), so the full-width divider and Google button below
+            it did not line up. Everything in the column is one width now. */}
+        <form onSubmit={handleSubmit} className="w-full flex flex-col gap-3">
           <input
             type="email"
             inputMode="email"
@@ -187,7 +241,7 @@ export default function AuthScreen() {
             </button>
           </div>
 
-          <button type="submit" disabled={loading} className="btn-gold lift-gold">
+          <button type="submit" disabled={loading || googleLoading} className="btn-gold lift-gold">
             {loading ? (
               <span className="flex items-center justify-center gap-2">
                 <Spinner />
@@ -211,6 +265,38 @@ export default function AuthScreen() {
             {isSignup ? 'Already have an account? Sign in' : 'New here? Create an account'}
           </button>
         </form>
+
+        {/* Divider — hairline rules in the app's border token, not a Tailwind gray. */}
+        <div className="w-full flex items-center gap-3 my-5" aria-hidden="true">
+          <span className="h-px flex-1 bg-bg-border" />
+          <span className="text-[11px] tracking-[0.18em] uppercase text-text-muted">or</span>
+          <span className="h-px flex-1 bg-bg-border" />
+        </div>
+
+        {/* Google — a quiet outline button on purpose. .btn-gold is the screen's one
+            primary; a second gold button would make the two sign-in paths compete. */}
+        <button
+          type="button"
+          onClick={handleGoogle}
+          disabled={googleLoading || loading}
+          className="press btn-google"
+        >
+          {googleLoading ? (
+            <>
+              <SpinnerGold />
+              <span>Redirecting…</span>
+            </>
+          ) : (
+            <>
+              <GoogleIcon />
+              <span>Sign in with Google</span>
+            </>
+          )}
+        </button>
+
+        {googleError && (
+          <p className="text-red-400 text-xs tracking-wide text-center mt-3">{googleError}</p>
+        )}
       </div>
     </div>
   )

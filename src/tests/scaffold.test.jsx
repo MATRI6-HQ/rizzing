@@ -30,9 +30,9 @@ describe('scaffold', () => {
     expect(state.matches).toHaveLength(0)
   })
 
-  it('All 7 routes are defined in the router', () => {
+  it('All 8 routes are defined in the router', () => {
     const paths = ROUTES.map((r) => r.path)
-    expect(ROUTES).toHaveLength(7)
+    expect(ROUTES).toHaveLength(8)
     expect(paths).toEqual(
       expect.arrayContaining([
         '/auth',
@@ -42,6 +42,7 @@ describe('scaffold', () => {
         '/',
         '/conversation',
         '/profile',
+        '/refer',
       ]),
     )
   })

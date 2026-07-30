@@ -6,6 +6,7 @@ import { useProfileStore } from '../../store/profileStore'
 import { useMatchStore } from '../../store/matchStore'
 import TermsContent from '../../components/TermsContent'
 import PersonaRadar from '../../components/PersonaRadar'
+import EmojiPicker, { MAX_EMOJIS } from '../../components/EmojiPicker'
 import { deriveArchetype, isPersonaForming, AXIS_KEYS } from '../../lib/archetype'
 import { LANGUAGE_CHOICES, EMOJI_CHOICES, normalizeLanguage, normalizeEmoji } from '../../lib/prefs'
 import { SUPPORT_EMAIL, SUPPORT_REPLY_WINDOW, supportMailto } from '../../lib/support'
@@ -191,7 +192,12 @@ export default function ProfileScreen() {
   const [matchCount, setMatchCount] = useState(matches.length)
 
   // Preference draft state — taps edit this, not the store (Section 4).
-  const [draft, setDraft] = useState({ hinglish_ratio: null, emoji_frequency: null })
+  const [draft, setDraft] = useState({
+    hinglish_ratio: null,
+    emoji_frequency: null,
+    preferred_emojis: [],
+  })
+  const [emojiOpen, setEmojiOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [toast, setToast] = useState('')
@@ -236,14 +242,27 @@ export default function ProfileScreen() {
   // (low/medium/high, 'hinglish') land on the right pill instead of none.
   const savedLanguage = normalizeLanguage(profile.hinglish_ratio)
   const savedEmoji = normalizeEmoji(profile.emoji_frequency)
+  const savedEmojiList = profile.preferred_emojis ?? []
+  // preferred_emojis is an ORDERED text[], so joining is real equality, not a shortcut.
+  // It also gives the effect below a primitive to depend on — a fresh array literal from
+  // the store would be a new reference every render and re-seed the draft forever,
+  // wiping the user's edit on each keystroke elsewhere on the screen.
+  const savedEmojiKey = savedEmojiList.join(' ')
 
   // Re-seed the draft whenever the saved values change (initial load, or a save landing).
   useEffect(() => {
-    setDraft({ hinglish_ratio: savedLanguage, emoji_frequency: savedEmoji })
-  }, [savedLanguage, savedEmoji])
+    setDraft({
+      hinglish_ratio: savedLanguage,
+      emoji_frequency: savedEmoji,
+      preferred_emojis: savedEmojiKey === '' ? [] : savedEmojiKey.split(' '),
+    })
+  }, [savedLanguage, savedEmoji, savedEmojiKey])
 
+  const emojisDirty = draft.preferred_emojis.join(' ') !== savedEmojiKey
   const dirty =
-    draft.hinglish_ratio !== savedLanguage || draft.emoji_frequency !== savedEmoji
+    draft.hinglish_ratio !== savedLanguage ||
+    draft.emoji_frequency !== savedEmoji ||
+    emojisDirty
 
   const name = profile.full_name || user?.email?.split('@')[0] || 'You'
   const initial = name.charAt(0).toUpperCase()
@@ -273,6 +292,7 @@ export default function ProfileScreen() {
       await savePatch(user.id, {
         hinglish_ratio: draft.hinglish_ratio,
         emoji_frequency: draft.emoji_frequency,
+        preferred_emojis: draft.preferred_emojis,
       })
       setToast('Preferences saved')
       setTimeout(() => setToast(''), TOAST_MS)
@@ -287,7 +307,11 @@ export default function ProfileScreen() {
   }
 
   function handleDiscard() {
-    setDraft({ hinglish_ratio: savedLanguage, emoji_frequency: savedEmoji })
+    setDraft({
+      hinglish_ratio: savedLanguage,
+      emoji_frequency: savedEmoji,
+      preferred_emojis: savedEmojiList,
+    })
     setSaveError('')
   }
 
@@ -487,12 +511,51 @@ export default function ProfileScreen() {
                 value={draft.emoji_frequency}
                 pending={draft.emoji_frequency !== savedEmoji}
                 onSelect={(v) => setDraft((d) => ({ ...d, emoji_frequency: v }))}
-                helper={
-                  profile.preferred_emojis?.length > 0
-                    ? `Go-to emojis: ${profile.preferred_emojis.join(' ')}`
-                    : null
-                }
               />
+            </div>
+
+            {/* Go-to emojis — previously a read-only helper line under "Emoji use",
+                set once in onboarding and un-editable after. It feeds the reply prompt,
+                so it's a real preference and belongs in the same draft → Save flow. */}
+            <div className="mt-6">
+              <div className="flex items-baseline justify-between mb-2">
+                <p className="text-[13px] text-text-secondary">
+                  Go-to emojis
+                  {emojisDirty && <span className="text-gold ml-1.5">•</span>}
+                </p>
+                <p className="text-[11px] text-text-muted tabular-nums">
+                  {draft.preferred_emojis.length} / {MAX_EMOJIS}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                {draft.preferred_emojis.length > 0 ? (
+                  <p className="text-[19px] leading-none tracking-[0.12em] truncate">
+                    {draft.preferred_emojis.join(' ')}
+                  </p>
+                ) : (
+                  <p className="text-[12px] text-text-muted">
+                    None picked — we'll leave emojis out.
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setEmojiOpen((v) => !v)}
+                  aria-expanded={emojiOpen}
+                  className="press text-[12px] text-gold hover:opacity-70 cursor-pointer shrink-0"
+                >
+                  {emojiOpen ? 'Done' : 'Edit'}
+                </button>
+              </div>
+
+              {emojiOpen && (
+                <div className="mt-3">
+                  <EmojiPicker
+                    value={draft.preferred_emojis}
+                    onChange={(next) => setDraft((d) => ({ ...d, preferred_emojis: next }))}
+                  />
+                </div>
+              )}
             </div>
 
             {saveError && (

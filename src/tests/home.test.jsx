@@ -19,12 +19,15 @@ describe('HomeScreen', () => {
     useMatchStore.setState({ matches: [], activeMatch: null, loading: false })
   })
 
-  it('renders the RIZZING puzzle-piece logo in the header', () => {
-    renderHome()
-    // Header + empty-state both render the brand mark from /1.jpg.
-    const logos = screen.getAllByAltText('RIZZING')
-    expect(logos.length).toBeGreaterThan(0)
-    expect(logos[0].getAttribute('src')).toBe('/1.jpg')
+  // The header carries the RIZZING wordmark, not the puzzle-piece image mark. The
+  // image still appears in the empty state as a hero illustration — a different job —
+  // so this asserts the header specifically rather than "no img anywhere".
+  it('renders the RIZZING wordmark in the header', () => {
+    const { container } = renderHome()
+    const wordmark = container.querySelector('header .wordmark')
+    expect(wordmark).toBeInTheDocument()
+    expect(wordmark).toHaveTextContent('RIZZING')
+    expect(container.querySelector('header img')).not.toBeInTheDocument()
   })
 
   it('shows the empty state when matchStore is empty', () => {
@@ -32,18 +35,27 @@ describe('HomeScreen', () => {
     expect(screen.getByText('No matches yet')).toBeInTheDocument()
   })
 
-  // The empty state owns the primary action, so the corner FAB stands down there —
-  // exactly one gold control on screen at a time.
-  it('the empty state carries the primary add action', () => {
-    renderHome()
+  // The footer's + is the single gold "add match" control on every state of the
+  // screen, so the empty state's own CTA is a ghost button, not a second primary.
+  it('the footer + is the add action in both the empty and populated states', () => {
+    const { unmount } = renderHome()
+    expect(screen.getByRole('button', { name: 'Add match' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Add your first match/ })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Add match' })).not.toBeInTheDocument()
-  })
+    unmount()
 
-  it('renders the corner FAB once there is at least one match', () => {
     useMatchStore.setState({ matches: [{ id: 'm1', name: 'Aisha' }] })
     renderHome()
     expect(screen.getByRole('button', { name: 'Add match' })).toBeInTheDocument()
+    // The empty-state CTA is gone; the footer + is the only way in.
+    expect(screen.queryByRole('button', { name: /Add your first match/ })).not.toBeInTheDocument()
+  })
+
+  // Profile lives in the footer nav now — the header button that used to duplicate it
+  // is gone, so there is exactly one route into /profile from Home.
+  it('exposes Refer and Profile once each, in the footer nav', () => {
+    renderHome()
+    expect(screen.getByRole('button', { name: 'Refer' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Profile' })).toBeInTheDocument()
   })
 
   it('renders a match card when matchStore has a match', () => {

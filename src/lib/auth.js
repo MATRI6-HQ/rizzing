@@ -27,6 +27,42 @@ export async function signIn(email, password) {
 }
 
 /**
+ * Where Supabase should send the browser back to after an OAuth round-trip.
+ *
+ * VITE_APP_URL is the deliberate override (currently NOT set in .env — add it in Vercel
+ * project settings if the redirect ever needs to differ from the serving origin);
+ * `window.location.origin` is the fallback so a missing var degrades to "come back to
+ * wherever we started" instead of the string "undefined/auth/callback", which Supabase
+ * would reject as an unlisted redirect. Neither branch hardcodes a URL, so localhost,
+ * a Vercel preview and rizzing.matri6.com all work off the same build.
+ *
+ * NOTE: whatever this resolves to must be listed under Auth → URL Configuration →
+ * Redirect URLs in the Supabase dashboard, or the redirect silently falls back to
+ * site_url.
+ */
+function oauthRedirectTo() {
+  const base = import.meta.env.VITE_APP_URL || window.location.origin
+  return `${base}/auth/callback`
+}
+
+/**
+ * Start the Google OAuth flow. Resolves only far enough to hand the browser off —
+ * signInWithOAuth navigates away, so nothing after this runs on success.
+ *
+ * Throws on failure to match signIn/signUp above: signInWithOAuth resolves with
+ * `{ error }` rather than rejecting, and a caller that only awaited it would show a
+ * dead button on a misconfigured provider instead of an error.
+ */
+export async function signInWithGoogle() {
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: oauthRedirectTo() },
+  })
+  if (error) throw error
+  return data
+}
+
+/**
  * Re-send the signup confirmation email. Supabase silently no-ops for an address that
  * is already confirmed, so the UI can call this without leaking account existence.
  * @param {string} email

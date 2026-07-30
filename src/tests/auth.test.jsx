@@ -15,9 +15,18 @@ vi.mock('../lib/auth', () => ({
   signUp: vi.fn(),
   signOut: vi.fn(),
   resendVerification: vi.fn(),
+  signInWithGoogle: vi.fn(),
 }))
 
-import { signIn, signUp, resendVerification } from '../lib/auth'
+// Mocked separately from ../lib/auth: the "calls signInWithOAuth" test below reaches
+// past the auth-lib mock with importActual, so the REAL signInWithGoogle has to land
+// on a fake supabase client rather than a live OAuth redirect.
+const { mockSignInWithOAuth } = vi.hoisted(() => ({ mockSignInWithOAuth: vi.fn() }))
+vi.mock('../lib/supabase', () => ({
+  supabase: { auth: { signInWithOAuth: mockSignInWithOAuth } },
+}))
+
+import { signIn, signUp, resendVerification, signInWithGoogle } from '../lib/auth'
 import AuthScreen from '../screens/Auth/AuthScreen'
 import CheckEmailScreen from '../screens/Auth/CheckEmailScreen'
 import { useAuthStore } from '../store/authStore'
@@ -101,6 +110,80 @@ describe('AuthScreen', () => {
     )
     // A dead-end error string would leave them with no way to get a new link.
     expect(screen.queryByText('Email not confirmed')).not.toBeInTheDocument()
+  })
+
+  describe('Sign in with Google', () => {
+    it('renders the Google button below the email form', () => {
+      renderAuth()
+      expect(screen.getByRole('button', { name: /Sign in with Google/i })).toBeEnabled()
+    })
+
+    it('clicking it starts the OAuth flow', async () => {
+      signInWithGoogle.mockResolvedValueOnce({ provider: 'google', url: 'https://accounts.google.com/…' })
+      renderAuth()
+
+      fireEvent.click(screen.getByRole('button', { name: /Sign in with Google/i }))
+      await waitFor(() => expect(signInWithGoogle).toHaveBeenCalledTimes(1))
+      // The email path must be untouched by the Google button.
+      expect(signIn).not.toHaveBeenCalled()
+      expect(signUp).not.toHaveBeenCalled()
+    })
+
+    it('surfaces a failure inline instead of leaving a dead button', async () => {
+      signInWithGoogle.mockRejectedValueOnce(new Error('Unsupported provider'))
+      renderAuth()
+
+      fireEvent.click(screen.getByRole('button', { name: /Sign in with Google/i }))
+      expect(await screen.findByText('Unsupported provider')).toBeInTheDocument()
+      // Spinner cleared on failure, so they can retry.
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /Sign in with Google/i })).toBeEnabled(),
+      )
+    })
+
+    it('stays busy after a successful hand-off (the page is about to navigate away)', async () => {
+      // Resolve with a URL but never actually navigate — mirrors the real flow, where
+      // the browser leaves before any post-await state update would matter.
+      signInWithGoogle.mockResolvedValueOnce({ url: 'https://accounts.google.com/…' })
+      renderAuth()
+
+      fireEvent.click(screen.getByRole('button', { name: /Sign in with Google/i }))
+      expect(await screen.findByText('Redirecting…')).toBeInTheDocument()
+      // The email submit is locked out while the redirect is in flight.
+      expect(screen.getByRole('button', { name: 'Sign In' })).toBeDisabled()
+    })
+  })
+})
+
+// Exercises the real lib function against a mocked supabase client — the AuthScreen
+// tests above mock ../lib/auth wholesale, so this is the only place the actual
+// provider argument gets checked.
+describe('signInWithGoogle (lib/auth)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("calls signInWithOAuth with provider 'google' and a /auth/callback redirect", async () => {
+    mockSignInWithOAuth.mockResolvedValueOnce({ data: { url: 'https://accounts.google.com/…' }, error: null })
+    const actual = await vi.importActual('../lib/auth')
+
+    await actual.signInWithGoogle()
+
+    expect(mockSignInWithOAuth).toHaveBeenCalledTimes(1)
+    const arg = mockSignInWithOAuth.mock.calls[0][0]
+    expect(arg.provider).toBe('google')
+    // The origin varies by environment (VITE_APP_URL, else window.location.origin), so
+    // pin the route, not the host — and assert it is a real absolute URL, since the
+    // "undefined/auth/callback" failure mode is exactly what the fallback exists to stop.
+    expect(arg.options.redirectTo).toMatch(/^https?:\/\/.+\/auth\/callback$/)
+    expect(arg.options.redirectTo).not.toContain('undefined')
+  })
+
+  it('throws when the provider call errors, so the UI can show it', async () => {
+    mockSignInWithOAuth.mockResolvedValueOnce({ data: null, error: new Error('Unsupported provider') })
+    const actual = await vi.importActual('../lib/auth')
+
+    await expect(actual.signInWithGoogle()).rejects.toThrow('Unsupported provider')
   })
 })
 
