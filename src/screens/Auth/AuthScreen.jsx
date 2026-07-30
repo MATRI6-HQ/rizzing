@@ -109,9 +109,8 @@ export default function AuthScreen() {
    * back to its resting state and looking like the tap did nothing.
    */
   async function handleGoogle() {
-    if (googleLoading || loading) return
+    if (googleLoading) return
     setGoogleError('')
-    setError('')
     setGoogleLoading(true)
     try {
       await signInWithGoogle()
@@ -204,10 +203,44 @@ export default function AuthScreen() {
           {isSignup ? 'Create your account' : 'Welcome back'}
         </h2>
 
+        {/* Google FIRST — it's the fastest path in and shouldn't sit below a form the
+            user has to scroll past. Still a quiet outline button, not gold: .btn-gold
+            (Sign In) is the screen's one primary, and a second gold button would make
+            the two sign-in paths compete rather than rank. */}
+        <button
+          type="button"
+          onClick={handleGoogle}
+          disabled={googleLoading}
+          className="press btn-google"
+        >
+          {googleLoading ? (
+            <>
+              <SpinnerGold />
+              <span>Redirecting…</span>
+            </>
+          ) : (
+            <>
+              <GoogleIcon />
+              <span>Sign in with Google</span>
+            </>
+          )}
+        </button>
+
+        {googleError && (
+          <p className="text-red-400 text-xs tracking-wide text-center mt-3">{googleError}</p>
+        )}
+
+        {/* Divider — hairline rules in the app's border token, not a Tailwind gray. */}
+        <div className="w-full flex items-center gap-3 my-5" aria-hidden="true">
+          <span className="h-px flex-1 bg-bg-border" />
+          <span className="text-[11px] tracking-[0.18em] uppercase text-text-muted">or</span>
+          <span className="h-px flex-1 bg-bg-border" />
+        </div>
+
         {/* Form */}
         {/* w-full: the form was shrink-to-fit (its width came from the longest label,
-            ~285px in a 440px shell), so the full-width divider and Google button below
-            it did not line up. Everything in the column is one width now. */}
+            ~285px in a 440px shell), so the full-width divider and Google button did
+            not line up with it. Everything in the column is one width now. */}
         <form onSubmit={handleSubmit} className="w-full flex flex-col gap-3">
           <input
             type="email"
@@ -241,7 +274,11 @@ export default function AuthScreen() {
             </button>
           </div>
 
-          <button type="submit" disabled={loading || googleLoading} className="btn-gold lift-gold">
+          {/* Only `loading` gates this — the two paths are independent. A Google
+              redirect in flight used to disable the form too; it isn't worth locking
+              the user out of the path they may be switching back to, and the redirect
+              takes the page away within a frame or two anyway. */}
+          <button type="submit" disabled={loading} className="btn-gold lift-gold">
             {loading ? (
               <span className="flex items-center justify-center gap-2">
                 <Spinner />
@@ -265,38 +302,6 @@ export default function AuthScreen() {
             {isSignup ? 'Already have an account? Sign in' : 'New here? Create an account'}
           </button>
         </form>
-
-        {/* Divider — hairline rules in the app's border token, not a Tailwind gray. */}
-        <div className="w-full flex items-center gap-3 my-5" aria-hidden="true">
-          <span className="h-px flex-1 bg-bg-border" />
-          <span className="text-[11px] tracking-[0.18em] uppercase text-text-muted">or</span>
-          <span className="h-px flex-1 bg-bg-border" />
-        </div>
-
-        {/* Google — a quiet outline button on purpose. .btn-gold is the screen's one
-            primary; a second gold button would make the two sign-in paths compete. */}
-        <button
-          type="button"
-          onClick={handleGoogle}
-          disabled={googleLoading || loading}
-          className="press btn-google"
-        >
-          {googleLoading ? (
-            <>
-              <SpinnerGold />
-              <span>Redirecting…</span>
-            </>
-          ) : (
-            <>
-              <GoogleIcon />
-              <span>Sign in with Google</span>
-            </>
-          )}
-        </button>
-
-        {googleError && (
-          <p className="text-red-400 text-xs tracking-wide text-center mt-3">{googleError}</p>
-        )}
       </div>
     </div>
   )

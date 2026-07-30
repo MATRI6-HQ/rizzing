@@ -177,50 +177,78 @@ describe('ProfileScreen', () => {
     })
   })
 
+  // The fixed 20-emoji grid is gone; this is a plain input the OS emoji keyboard
+  // types into, with the selection shown as removable chips.
   describe('go-to emojis', () => {
-    it('shows the saved emojis and a count, with the grid collapsed', () => {
+    const typeEmoji = (text) =>
+      fireEvent.change(screen.getByLabelText('Add an emoji'), { target: { value: text } })
+
+    it('shows the saved emojis as chips with a count, and no grid', () => {
       renderProfile()
-      expect(screen.getByText('🔥 😂')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Remove 🔥' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Remove 😂' })).toBeInTheDocument()
       expect(screen.getByText('2 / 5')).toBeInTheDocument()
-      // The 20-tile grid stays behind Edit so it can't dominate the Preferences card.
-      expect(screen.queryByRole('button', { name: '💀' })).not.toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Tap to add emoji')).toBeInTheDocument()
     })
 
-    it('Edit opens the grid and a tap only marks the draft dirty', () => {
+    it('typing an emoji adds a chip and marks the draft dirty', () => {
       renderProfile()
-      fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
-      fireEvent.click(screen.getByRole('button', { name: '💀' }))
+      typeEmoji('💀')
 
-      expect(screen.getByRole('button', { name: '💀' })).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByRole('button', { name: 'Remove 💀' })).toBeInTheDocument()
       expect(screen.getByText('3 / 5')).toBeInTheDocument()
       // Same draft-first contract as the pills: nothing is written until Save.
       expect(useProfileStore.getState().preferred_emojis).toEqual(['🔥', '😂'])
       expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument()
     })
 
-    it('tapping a selected emoji removes it', () => {
+    it('keeps multi-codepoint emoji whole', () => {
+      useProfileStore.setState({ preferred_emojis: [] })
       renderProfile()
-      fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
-      fireEvent.click(screen.getByRole('button', { name: '🔥' }))
-      expect(screen.getByText('1 / 5')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: '🔥' })).toHaveAttribute('aria-pressed', 'false')
+      // ZWJ sequence + skin-tone modifier: a naive split('') would shred both.
+      typeEmoji('👩‍💻👍🏽')
+      expect(screen.getByRole('button', { name: 'Remove 👩‍💻' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Remove 👍🏽' })).toBeInTheDocument()
+      expect(screen.getByText('2 / 5')).toBeInTheDocument()
     })
 
-    it('caps the selection at 5 by disabling the unpicked tiles', () => {
+    it('ignores non-emoji text and duplicates', () => {
+      renderProfile()
+      typeEmoji('hello')
+      expect(screen.getByText('2 / 5')).toBeInTheDocument()
+      typeEmoji('🔥')
+      expect(screen.getByText('2 / 5')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument()
+    })
+
+    it('tapping a chip removes it', () => {
+      renderProfile()
+      fireEvent.click(screen.getByRole('button', { name: 'Remove 🔥' }))
+      expect(screen.getByText('1 / 5')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Remove 🔥' })).not.toBeInTheDocument()
+    })
+
+    it('caps the selection at 5 by disabling the input', () => {
       useProfileStore.setState({ preferred_emojis: ['😂', '🔥', '💀', '😅', '😏'] })
       renderProfile()
-      fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
 
-      expect(screen.getByRole('button', { name: '❤️' })).toBeDisabled()
-      // Picked tiles stay live so the user can swap one out.
-      expect(screen.getByRole('button', { name: '🔥' })).not.toBeDisabled()
-      expect(screen.getByText(/That's all 5/)).toBeInTheDocument()
+      expect(screen.getByLabelText('Add an emoji')).toBeDisabled()
+      expect(screen.getByText(/That's all 5 — remove one/)).toBeInTheDocument()
+      // Chips stay live so the user can swap one out.
+      expect(screen.getByRole('button', { name: 'Remove 🔥' })).toBeEnabled()
+    })
+
+    it('a 6th emoji in one paste is dropped rather than overflowing the cap', () => {
+      useProfileStore.setState({ preferred_emojis: [] })
+      renderProfile()
+      typeEmoji('😂🔥💀😅😏❤️')
+      expect(screen.getByText('5 / 5')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Remove ❤️' })).not.toBeInTheDocument()
     })
 
     it('Save persists preferred_emojis as an ordered array', async () => {
       renderProfile()
-      fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
-      fireEvent.click(screen.getByRole('button', { name: '💀' }))
+      typeEmoji('💀')
 
       db.next = { data: { ...SAVED_ROW, preferred_emojis: ['🔥', '😂', '💀'] }, error: null }
       fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
@@ -231,8 +259,7 @@ describe('ProfileScreen', () => {
 
     it('Discard reverts the emoji draft', () => {
       renderProfile()
-      fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
-      fireEvent.click(screen.getByRole('button', { name: '💀' }))
+      typeEmoji('💀')
       fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
 
       expect(screen.getByText('2 / 5')).toBeInTheDocument()
@@ -242,8 +269,8 @@ describe('ProfileScreen', () => {
     it('renders the empty case honestly rather than guessing emojis', () => {
       useProfileStore.setState({ preferred_emojis: [] })
       renderProfile()
-      expect(screen.getByText("None picked — we'll leave emojis out.")).toBeInTheDocument()
       expect(screen.getByText('0 / 5')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /^Remove / })).not.toBeInTheDocument()
     })
   })
 

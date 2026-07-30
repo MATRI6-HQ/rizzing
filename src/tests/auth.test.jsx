@@ -113,9 +113,15 @@ describe('AuthScreen', () => {
   })
 
   describe('Sign in with Google', () => {
-    it('renders the Google button below the email form', () => {
-      renderAuth()
-      expect(screen.getByRole('button', { name: /Sign in with Google/i })).toBeEnabled()
+    it('renders the Google button ABOVE the email form', () => {
+      const { container } = renderAuth()
+      const google = screen.getByRole('button', { name: /Sign in with Google/i })
+      expect(google).toBeEnabled()
+
+      // Google is the fastest path in, so it leads. compareDocumentPosition is the
+      // only way to assert source order that survives styling changes.
+      const form = container.querySelector('form')
+      expect(google.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     })
 
     it('clicking it starts the OAuth flow', async () => {
@@ -149,8 +155,27 @@ describe('AuthScreen', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /Sign in with Google/i }))
       expect(await screen.findByText('Redirecting…')).toBeInTheDocument()
-      // The email submit is locked out while the redirect is in flight.
-      expect(screen.getByRole('button', { name: 'Sign In' })).toBeDisabled()
+    })
+
+    it('the two paths load and fail independently', async () => {
+      signInWithGoogle.mockResolvedValueOnce({ url: 'https://accounts.google.com/…' })
+      renderAuth()
+
+      fireEvent.click(screen.getByRole('button', { name: /Sign in with Google/i }))
+      await screen.findByText('Redirecting…')
+      // A Google redirect in flight must not lock the user out of the email form.
+      expect(screen.getByRole('button', { name: 'Sign In' })).toBeEnabled()
+      expect(screen.getByPlaceholderText('Email')).toBeEnabled()
+
+      // And an email error stays in the form, not under the Google button.
+      signIn.mockRejectedValueOnce(new Error('Invalid login credentials'))
+      fireEvent.change(screen.getByPlaceholderText('Email'), { target: { value: 'a@b.com' } })
+      fireEvent.change(screen.getByPlaceholderText('Password'), { target: { value: 'secret123' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Sign In' }))
+
+      expect(await screen.findByText('Invalid login credentials')).toBeInTheDocument()
+      // The Google button never entered an error state from the email failure.
+      expect(screen.queryByText(/Could not reach Google/)).not.toBeInTheDocument()
     })
   })
 })

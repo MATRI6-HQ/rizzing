@@ -924,8 +924,11 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-around;
-  gap: 8px;
-  padding: 10px 20px calc(10px + env(safe-area-inset-bottom, 0px));
+  /* Tight because there are five slots, not three: at 440px the four flanking items
+     share ~350px once the 54px centre button is out, so gap and side padding are the
+     only budget left before the labels start wrapping. */
+  gap: 2px;
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
   border-top: 0.5px solid rgba(255, 255, 255, 0.07);
   background: rgba(13, 13, 13, 0.82);
   backdrop-filter: blur(18px);
@@ -957,9 +960,12 @@ body {
   opacity: 1;
 }
 .footer-nav__label {
-  font-size: 10px;
-  letter-spacing: 0.1em;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+  /* One line always. "Enhancer" is the longest label and wrapping it would make that
+     one slot taller than the rest, knocking the whole row's baseline out. */
+  white-space: nowrap;
 }
 
 /* The one gold control on the screen. Lifted above the bar and slightly oversized
@@ -990,32 +996,33 @@ body {
   }
 }
 
-/* ── Emoji picker tile ────────────────────────────────────────────────────── */
-.emoji-tile {
-  aspect-ratio: 1;
-  display: flex;
+/* ── Emoji chips (removable, under the native-input emoji field) ──────────── */
+.emoji-chip {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  font-size: 21px;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 18px;
   line-height: 1;
-  border-radius: 12px;
-  border: 0.5px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
+  border-radius: 999px;
+  border: 0.5px solid rgba(212, 168, 67, 0.35);
+  background: var(--color-gold-tint);
   cursor: pointer;
   transition: border-color 150ms, background 150ms, scale 100ms;
 }
-.emoji-tile:hover:not(:disabled) {
-  border-color: rgba(212, 168, 67, 0.35);
-  background: rgba(255, 255, 255, 0.05);
+.emoji-chip:hover {
+  border-color: rgba(212, 168, 67, 0.6);
+  background: rgba(212, 168, 67, 0.1);
 }
-/* 1.5px on the selected tile — the same weight the app gives a chosen reply. */
-.emoji-tile.is-selected {
-  border: 1.5px solid #d4a843;
-  background: var(--color-gold-tint);
+/* The x is the affordance; the whole chip is the hit target, which at 18px type is
+   comfortably past the 44px minimum without needing a separate nested button. */
+.emoji-chip__x {
+  font-size: 14px;
+  color: #9b9690;
+  line-height: 1;
 }
-.emoji-tile:disabled {
-  opacity: 0.28;
-  cursor: not-allowed;
+.emoji-chip:hover .emoji-chip__x {
+  color: #f0ede8;
 }
 
 /* ── Google sign-in button ────────────────────────────────────────────────────

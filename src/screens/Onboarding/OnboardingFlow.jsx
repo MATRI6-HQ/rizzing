@@ -6,6 +6,7 @@ import PageTransition, {
 } from '../../components/PageTransition'
 import ChatBubble, { TypingIndicator } from '../../components/ChatBubble'
 import TermsContent from '../../components/TermsContent'
+import EmojiPicker from '../../components/EmojiPicker'
 import { TERMS_VERSION } from '../../lib/legal'
 import { useAuthStore } from '../../store/authStore'
 import { useProfileStore } from '../../store/profileStore'
@@ -291,7 +292,10 @@ export default function OnboardingFlow() {
   // QuickPrefs
   const [language, setLanguage] = useState(null)
   const [emojiLevel, setEmojiLevel] = useState(null)
-  const [emojiFavorites, setEmojiFavorites] = useState('')
+  // Held as an array to match the preferred_emojis text[] column directly — the old
+  // free-text field needed a whitespace split on the way out, which also meant any
+  // non-emoji the user typed got written to the column verbatim.
+  const [preferredEmojis, setPreferredEmojis] = useState([])
 
   // Scenarios
   const [choices, setChoices] = useState(Array(SCENARIOS.length).fill(null))
@@ -299,8 +303,6 @@ export default function OnboardingFlow() {
   const [error, setError] = useState('')
 
   const ageAsNumber = age.trim() === '' ? null : Number(age)
-  // Schema column preferred_emojis is text[] — split the free-text field into an array.
-  const preferredEmojis = emojiFavorites.trim() === '' ? [] : emojiFavorites.trim().split(/\s+/)
 
   async function handleContinue() {
     if (name.trim() === '' || saving) return
@@ -328,7 +330,7 @@ export default function OnboardingFlow() {
   // ProfileScreen renders that as "not set yet" and invites them to pick later.
   function skipEmoji() {
     setEmojiLevel(null)
-    setEmojiFavorites('')
+    setPreferredEmojis([])
     goToStep(FIRST_SCENARIO_STEP)
   }
 
@@ -567,18 +569,15 @@ export default function OnboardingFlow() {
                     ))}
                   </div>
 
+                  {/* Same component the Profile screen uses, so the cap, the emoji-only
+                      filtering and the chip UI can't drift between the two places this
+                      preference is edited. The old free-text field here accepted any
+                      text and had no cap at all. */}
                   <div className="mt-6">
                     <label className="text-text-secondary text-sm block mb-2">
                       Your go-to emojis (optional)
                     </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. 😂 🔥 💀"
-                      value={emojiFavorites}
-                      onChange={(e) => setEmojiFavorites(e.target.value)}
-                      className={INPUT_CLASS}
-                    />
-                    <p className="text-text-muted text-xs mt-2">We'll use these in your replies</p>
+                    <EmojiPicker value={preferredEmojis} onChange={setPreferredEmojis} />
                   </div>
 
                   <button

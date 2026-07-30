@@ -197,7 +197,6 @@ export default function ProfileScreen() {
     emoji_frequency: null,
     preferred_emojis: [],
   })
-  const [emojiOpen, setEmojiOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [toast, setToast] = useState('')
@@ -516,7 +515,9 @@ export default function ProfileScreen() {
 
             {/* Go-to emojis — previously a read-only helper line under "Emoji use",
                 set once in onboarding and un-editable after. It feeds the reply prompt,
-                so it's a real preference and belongs in the same draft → Save flow. */}
+                so it's a real preference and belongs in the same draft → Save flow.
+                The chips are the display now, so there's no Edit/Done toggle: the old
+                one only existed to keep a 20-tile grid folded away. */}
             <div className="mt-6">
               <div className="flex items-baseline justify-between mb-2">
                 <p className="text-[13px] text-text-secondary">
@@ -528,34 +529,10 @@ export default function ProfileScreen() {
                 </p>
               </div>
 
-              <div className="flex items-center justify-between gap-3">
-                {draft.preferred_emojis.length > 0 ? (
-                  <p className="text-[19px] leading-none tracking-[0.12em] truncate">
-                    {draft.preferred_emojis.join(' ')}
-                  </p>
-                ) : (
-                  <p className="text-[12px] text-text-muted">
-                    None picked — we'll leave emojis out.
-                  </p>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setEmojiOpen((v) => !v)}
-                  aria-expanded={emojiOpen}
-                  className="press text-[12px] text-gold hover:opacity-70 cursor-pointer shrink-0"
-                >
-                  {emojiOpen ? 'Done' : 'Edit'}
-                </button>
-              </div>
-
-              {emojiOpen && (
-                <div className="mt-3">
-                  <EmojiPicker
-                    value={draft.preferred_emojis}
-                    onChange={(next) => setDraft((d) => ({ ...d, preferred_emojis: next }))}
-                  />
-                </div>
-              )}
+              <EmojiPicker
+                value={draft.preferred_emojis}
+                onChange={(next) => setDraft((d) => ({ ...d, preferred_emojis: next }))}
+              />
             </div>
 
             {saveError && (
