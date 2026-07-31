@@ -770,6 +770,64 @@ body {
   cursor: not-allowed;
 }
 
+/* Destructive confirm button. Coral rather than gold — gold is the "yes, proceed"
+   colour everywhere else in the app and must not also mean "yes, delete". Uses the
+   --bold reply coral so no new hue enters the palette. */
+.btn-danger {
+  border: 1px solid rgba(196, 80, 58, 0.5);
+  border-radius: 12px;
+  background: #1a0e0b;
+  color: #e07a63;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 11px 16px;
+  cursor: pointer;
+  transition: background 160ms, border-color 160ms, scale 100ms;
+}
+.btn-danger:hover:not(:disabled) {
+  background: #24120e;
+  border-color: rgba(196, 80, 58, 0.8);
+}
+.btn-danger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── Match card action menu ───────────────────────────────────────────────────
+   A small popover anchored to the card's top-right, opened by the kebab, a long-press
+   or a right-click. z-index sits above the dismiss backdrop (z-40) that closes it. */
+.card-menu {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 50;
+  min-width: 190px;
+  padding: 5px;
+  border-radius: 12px;
+  background: #212121;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.65);
+  animation: page-enter 160ms ease-out backwards;
+}
+.card-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 11px;
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: left;
+  color: #e07a63;
+  background: transparent;
+  cursor: pointer;
+  transition: background 140ms;
+}
+.card-menu__item:hover {
+  background: rgba(196, 80, 58, 0.12);
+}
+
 /* Transient confirmation toast (preferences saved). */
 .toast-rizzing {
   position: fixed;

@@ -302,6 +302,30 @@ Scenario axis mapping:
 - Tap a match → opens the 3-mode entry sheet (see "3-mode chat entry" above)
 - There is **no screenshot / paste / type chooser here** — see the Conversation screen; that
   feature was dropped from the UI and Home has a single entry path.
+- **The footer `+` forks before it adds** (`src/screens/Home/AddMenuSheet.jsx`): a bottom
+  sheet with "Start new conversation" (the existing add-match sheet, unchanged, just
+  relocated behind it) and "Prompt replier" (`navigate('/prompt-replier')`). The empty
+  state's "Add your first match" and Refer's `?add=1` both land on this same fork, not on
+  the add sheet directly, so the three entry points cannot drift apart.
+- **Delete a conversation** — three ways into the card's action menu, because the app ships
+  to two input models at once: the kebab (the only one a mouse user finds), long-press
+  (`LONG_PRESS_MS = 500`, Android's own timeout) and right-click. The menu's one item,
+  "Delete conversation", raises the centred confirm dialog — the same shape as
+  ProfileScreen's `UnsavedDialog`, which is this app's destructive-confirm pattern.
+  - A long-press fires while the finger is still down, and the release produces a click
+    that would open the chat on top of the menu. `suppressClickRef` swallows exactly that
+    one click. It is a **ref, not state** — it has to be readable in the click handler of
+    the same gesture, before any re-render.
+  - **There is no `soft_deleted` column.** `is_active = false` IS the soft delete in the
+    deployed schema, and both list queries (HomeScreen's mount fetch and
+    `matchStore.loadMatches`) already filter `is_active = true`, so the row survives and
+    simply stops being fetched. Do not add a column to the frozen schema for this.
+  - `matchStore.removeMatch` is optimistic: the card goes immediately, and a failure
+    splices it back at the **same index** — not by restoring the whole array, which would
+    lose a concurrent add. It carries a `.select()` for the usual reason (PostgREST answers
+    an RLS-rejected UPDATE with 2xx and zero rows, so "no error" is not proof of a delete);
+    zero rows rolls back and names the RLS policy in the inline error.
+  - Pinned by `home.test.jsx` → "deleting a conversation".
 
 ### 4. Conversation screen (core feature)
 **Entry:** tapping a match on Home opens the 3-mode entry sheet (Context / New
@@ -339,6 +363,36 @@ copies to clipboard, writes the `conversation_turns` row, fires
 thread stays open afterwards (no auto-navigate home) — it's a persistent chat,
 not a one-shot. **Customize** (`CustomizeSheet`) re-calls `generate-replies` with a
 tweak instruction folded into the her_message string.
+
+### 4b. Prompt Replier (`src/screens/PromptReplier/PromptReplierScreen.jsx`)
+Route `/prompt-replier`, reachable only from Home's `+` fork. Two stacked inputs — "Her
+prompt" (the Hinge/Bumble prompt line) and "Her answer" — then Safe / Witty / Bold openers
+rendered through the **same `ChatBubble` / `ChatThread`** as ConversationFlow. No tabs, no
+screenshot/OCR (still dropped), no new bubble UI.
+
+**Standalone and throwaway, by decision.** It creates no `matches` row, writes nothing to
+Supabase, never touches `matchStore`, and does not appear in the matches list. Acting on an
+opener is a copy-paste — the Copy button is the only commit action. `home.test.jsx` and
+`promptReplier.test.jsx` both guard this; don't wire a "save as match" bridge without
+Dweep saying so.
+
+Unlike ConversationFlow the inputs stay visible after generating: there's no thread to fall
+back on, so hiding them would leave no way to fix a typo in the pair and retry.
+
+**The prompt-shape context lives in the Edge Function, never in what the user types.**
+`generatePromptReply({ prompt, answer, user_id })` → `generate-replies` with
+`mode: "prompt_reply"`. The two fields go over the wire **separately, not concatenated** —
+`buildPromptReplySystem` is what states "the input is a dating-app profile prompt followed
+by HER ANSWER to it; she has not messaged him; write the FIRST message, replying to the
+ANSWER", and it can only say that if it receives them apart. Without that declaration the
+pair reads as two messages she sent and the model answers the prompt line instead of her.
+Stage is cold open by definition (nobody has spoken), so it reuses
+`BOLD_BY_STAGE["cold open"]`'s moves and its no-proposing gate rather than inventing a
+second set, with the same restate-the-gate-last trick as `buildSystem`.
+
+Probed live against Gemini on four real Hinge pairs (12 openers): 0 context-confused
+replies, 0 bare greetings, 0 meet-up clichés. Re-run the probe in the scratchpad after any
+change to this prompt — a prompt regression here is statistical and no unit test can catch it.
 
 ### 5. Profile screen (`ProfileScreen.jsx` — built)
 The user's **rizz persona**, not a dating profile. Reading order is hero → radar → tone →
@@ -634,14 +688,24 @@ Note: picked is one of 'safe' / 'witty' / 'bold' / 'override' / 'skipped'
 ## Supabase Edge Functions (3 functions)
 
 ### generate-replies
+Two request shapes, one function — same provider chain, different prompt.
+
 POST /functions/v1/generate-replies
-Body: { her_message, match_id, user_id }
+Body: { her_message, match_id, user_id }          ← chat path
 - Fetches personality profile from DB
 - Fetches last 10 turns for this match
 - Detects stage from match.message_count
 - Builds system prompt
 - Calls Groq (or Claude at launch)
-- Returns { safe, witty, bold }
+- Returns { safe, witty, bold, provider }
+
+Body: { mode: "prompt_reply", prompt, answer, user_id }   ← Prompt Replier path
+- Fetches personality profile only. **Skips the match + conversation_turns reads
+  entirely** — there is no match_id on this path, and querying with a null one is how you
+  get a 400 that silently degrades into a default profile.
+- Builds the prompt via `buildPromptReplySystem` + `formatPromptAnswer` (see "4b. Prompt
+  Replier"); stage is cold open by definition.
+- Returns { safe, witty, bold, provider }
 
 ### process-screenshot
 POST /functions/v1/process-screenshot
@@ -715,11 +779,14 @@ rizzing/
 │   │   ├── Onboarding/
 │   │   │   └── OnboardingFlow.jsx   (consent gate + QuickPrefs + vibe-check + 7 scenarios)
 │   │   ├── Home/
-│   │   │   ├── HomeScreen.jsx
+│   │   │   ├── HomeScreen.jsx       (match cards + delete menu + the + fork)
+│   │   │   ├── AddMenuSheet.jsx     (New conversation / Prompt replier)
 │   │   │   └── EntryModeSheet.jsx   (Context / New topic / Continue previous)
 │   │   ├── Conversation/
 │   │   │   ├── ConversationFlow.jsx (messenger composer — no screenshot/OCR)
 │   │   │   └── CustomizeSheet.jsx
+│   │   ├── PromptReplier/
+│   │   │   └── PromptReplierScreen.jsx  (standalone opener generator — no persistence)
 │   │   └── Profile/
 │   │       └── ProfileScreen.jsx    (persona bars, prefs, account, T&C link)
 │   └── components/

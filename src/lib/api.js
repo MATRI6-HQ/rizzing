@@ -60,6 +60,20 @@ export async function generateReplies({ her_message, match_id, user_id }) {
 }
 
 /**
+ * generate-replies, standalone profile-prompt path: three openers for a dating-app
+ * profile prompt + her answer to it (Hinge/Bumble). Same Edge Function, selected by
+ * `mode` — it swaps in a prompt template that states the input shape itself, so the
+ * user never has to explain where the two fields came from.
+ *
+ * No match_id: Prompt Replier is a throwaway generator with no persistence (CLAUDE.md).
+ * @param {{ prompt: string, answer: string, user_id: string }} payload
+ * @returns {Promise<{ safe: string, witty: string, bold: string }>}
+ */
+export async function generatePromptReply({ prompt, answer, user_id }) {
+  return callFunction('generate-replies', { mode: 'prompt_reply', prompt, answer, user_id })
+}
+
+/**
  * process-screenshot: OCRs an incoming message screenshot.
  * @param {{ image_base64: string, user_id: string }} payload
  * @returns {Promise<{ extracted_text: string }>}

@@ -139,6 +139,87 @@ export function buildHistory(turns: Turn[]): string {
   return `RECENT HISTORY (oldest first — this is the conversation so far):\n${lines.join("\n")}\n\n`
 }
 
+/** Request `mode` that selects the standalone profile-prompt path over the chat path. */
+export const PROMPT_REPLY_MODE = "prompt_reply"
+
+/** The dials block is identical on both paths — build it once. */
+function styleBlock(p: Profile): string {
+  return (
+    `HIS STYLE (these are the user's own dials — the replies must sound like him):\n` +
+    `- Confidence: ${dial(p.confidence, 0.5)}/10\n` +
+    `- Humor: ${dial(p.humor, 0.5)}/10\n` +
+    `- Sarcasm: ${dial(p.sarcasm, 0.5)}/10\n` +
+    `- Boldness: ${dial(p.boldness, 0.6)}/10\n` +
+    `- Escalation pace: ${dial(p.escalation, 0.6)}/10\n` +
+    `- LANGUAGE: ${LANGUAGE_RULES[normalizeLanguage(p.hinglish_ratio)]}\n` +
+    `- Emoji use: ${p.emoji_frequency ?? "sometimes"}.\n\n`
+  )
+}
+
+/**
+ * The user-content half of the prompt-reply path. Labelled explicitly so the model can
+ * never mistake the fixed prompt line for something she typed at him.
+ */
+export function formatPromptAnswer(prompt: string, answer: string): string {
+  return `PROFILE PROMPT (the app's fixed line): ${prompt.trim()}\n` +
+    `HER ANSWER: ${answer.trim()}`
+}
+
+/**
+ * System prompt for the standalone Prompt Replier — a Hinge/Bumble profile prompt plus
+ * her written answer, with no match and no conversation behind it.
+ *
+ * The shape declaration is the whole point of this function existing. The user types
+ * nothing but the two fields; "this is a dating-app profile prompt and her answer to it,
+ * write an opening reply to the answer" is stated HERE so the model never depends on the
+ * user explaining where the text came from. Without it the pair reads as two messages
+ * she sent and the replies answer the prompt line instead of her.
+ *
+ * Stage is fixed at cold open by definition — nobody has spoken — so it reuses that
+ * stage's bold menu and its no-proposing gate rather than inventing a second set.
+ */
+export function buildPromptReplySystem(p: Profile, boldLevel: number): string {
+  const bold = BOLD_BY_STAGE["cold open"]
+  const language = LANGUAGE_RULES[normalizeLanguage(p.hinglish_ratio)]
+  return (
+    `You are RIZZING, a dating-reply assistant for Indian users on apps like Tinder, ` +
+    `Bumble and Hinge. Write in the user's own texting voice — like a real person, not an AI.\n\n` +
+    `WHAT YOU ARE LOOKING AT: the input is a dating-app PROFILE PROMPT — a fixed line the ` +
+    `app supplies, such as Hinge's "The way to win me over is" — followed by HER OWN ANSWER ` +
+    `to that prompt, written on her profile. She has NOT messaged him. There is no ` +
+    `conversation yet and nothing has been said between them.\n\n` +
+    `YOUR JOB: write the FIRST message he sends her — an opener that replies to HER ANSWER. ` +
+    `The prompt line is context that tells you what her answer means; the ANSWER is the ` +
+    `thing you respond to.\n\n` +
+    styleBlock(p) +
+    `Give exactly three options, as a JSON object whose keys are "safe", "witty" and ` +
+    `"bold", each mapping to an opener string:\n` +
+    `{"safe": "...", "witty": "...", "bold": "..."}\n\n` +
+    `- safe: warm and easy — shows he actually read her answer and gives her something ` +
+    `simple to reply to.\n` +
+    `- witty: clever and playful — a light tease or unexpected angle on her answer, dialled ` +
+    `to his humor and sarcasm above.\n` +
+    `- bold: the highest-risk of the three (bold intensity ${boldLevel}/10 for this user). ` +
+    `Here bold means: ${bold.moves}. ${bold.canPropose}\n\n` +
+    `OPENER RULES:\n` +
+    `- Hook onto something SPECIFIC in her answer. If the opener would still make sense ` +
+    `under a different answer, it is wrong — rewrite it.\n` +
+    `- Never quote the prompt line back at her, and never open by describing her profile ` +
+    `("saw your prompt about…"). She knows what she wrote.\n` +
+    `- No bare greetings. "Hey", "Hi", "How are you" and "What's up" are not openers.\n` +
+    `- Do not compliment her looks — you cannot see her, and it reads as generic anyway.\n` +
+    `- Do not open with a question stack. At most one question, and only if it follows ` +
+    `from her answer.\n\n` +
+    `Rules:\n` +
+    `- LANGUAGE, again: ${language} Match his emoji preference exactly too.\n` +
+    `- Each opener under 30 words. The three must be clearly different in energy.\n` +
+    // Same restatement-at-the-end trick as buildSystem: models weight the tail of a
+    // prompt most heavily, and this is the gate they leak past first.
+    `- FINAL CHECK on "bold" before you answer: ${bold.canPropose}\n` +
+    `- Return ONLY the JSON object, nothing else.`
+  )
+}
+
 /**
  * Build the system prompt. boldLevel (1-10) sharpens and scales the Bold persona;
  * `stage` now drives what Bold is permitted to do, not just a label at the top.
@@ -154,14 +235,7 @@ export function buildSystem(
   return (
     `You are RIZZING, a dating-reply assistant for Indian users on apps like Tinder, ` +
     `Bumble and Hinge. Write in the user's own texting voice — like a real person, not an AI.\n\n` +
-    `HIS STYLE (these are the user's own dials — the replies must sound like him):\n` +
-    `- Confidence: ${dial(p.confidence, 0.5)}/10\n` +
-    `- Humor: ${dial(p.humor, 0.5)}/10\n` +
-    `- Sarcasm: ${dial(p.sarcasm, 0.5)}/10\n` +
-    `- Boldness: ${dial(p.boldness, 0.6)}/10\n` +
-    `- Escalation pace: ${dial(p.escalation, 0.6)}/10\n` +
-    `- LANGUAGE: ${language}\n` +
-    `- Emoji use: ${p.emoji_frequency ?? "sometimes"}.\n\n` +
+    styleBlock(p) +
     `CONVERSATION STAGE: ${stage}.\n\n` +
     buildHistory(turns) +
     `Reply to her last message with exactly three options, as a JSON object whose keys are ` +

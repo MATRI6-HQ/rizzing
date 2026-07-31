@@ -6,17 +6,30 @@
 // Set REPLY_PROVIDER=gemini (default) + the keys below in the Edge Function secrets.
 // All three are forced into strict JSON so a model can never return bare keys.
 //
-// Request  (from src/lib/api.js → generateReplies):
-//   { her_message: string, match_id: string, user_id: string }
-// Response (rendered by ConversationFlow.jsx reply bubbles):
+// Two request shapes, one function — same provider chain, different prompt:
+//
+//   chat (from src/lib/api.js → generateReplies):
+//     { her_message: string, match_id: string, user_id: string }
+//   standalone profile prompt (→ generatePromptReply):
+//     { mode: "prompt_reply", prompt: string, answer: string, user_id: string }
+//
+// The standalone path has NO match and NO history by design (Prompt Replier is a
+// throwaway generator — nothing is persisted, see CLAUDE.md), so it skips the match and
+// conversation_turns reads entirely rather than querying them with a null match_id.
+//
+// Response (rendered by ConversationFlow.jsx / PromptReplierScreen.jsx reply bubbles):
 //   { safe: string, witty: string, bold: string, provider: string }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { corsHeaders, json } from "../_shared/cors.ts"
 import {
+  buildPromptReplySystem,
   buildSystem,
   boldLevelFor,
   detectStage,
+  formatPromptAnswer,
   HISTORY_TURNS,
+  PROMPT_REPLY_MODE,
+  type Profile,
   type Replies,
   type Turn,
 } from "./prompt.ts"
@@ -220,8 +233,14 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
 
   try {
-    const { her_message, match_id, user_id } = await req.json()
-    if (!her_message || typeof her_message !== "string") {
+    const { her_message, match_id, user_id, mode, prompt, answer } = await req.json()
+    const isPromptReply = mode === PROMPT_REPLY_MODE
+
+    if (isPromptReply) {
+      if (!prompt || typeof prompt !== "string" || !answer || typeof answer !== "string") {
+        return json({ error: "prompt and answer are required" }, 400)
+      }
+    } else if (!her_message || typeof her_message !== "string") {
       return json({ error: "her_message is required" }, 400)
     }
 
@@ -232,31 +251,46 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: req.headers.get("Authorization")! } } },
     )
 
-    // Personality + stage + history are all best-effort — the function still works with
-    // defaults if any of them come back empty.
-    const [profileRes, matchRes, turnsRes] = await Promise.all([
-      supabase
-        .from("personality_profiles")
-        .select("hinglish_ratio, emoji_frequency, confidence, humor, sarcasm, boldness, escalation")
-        .eq("user_id", user_id)
-        .maybeSingle(),
-      supabase.from("matches").select("message_count").eq("id", match_id).maybeSingle(),
-      // The "last 10 turns" CLAUDE.md always specified — it was never actually queried, so
-      // every request looked like a fresh conversation to the model and it fell back on its
-      // generic prior. Newest-first + limit, then reversed into reading order below.
-      supabase
-        .from("conversation_turns")
-        .select("her_message, sent_text")
-        .eq("match_id", match_id)
-        .order("created_at", { ascending: false })
-        .limit(HISTORY_TURNS),
-    ])
-    const p = profileRes.data ?? {}
-    const stage = detectStage(matchRes.data?.message_count ?? 0)
-    const turns = ((turnsRes.data ?? []) as Turn[]).slice().reverse()
+    const profileQuery = supabase
+      .from("personality_profiles")
+      .select("hinglish_ratio, emoji_frequency, confidence, humor, sarcasm, boldness, escalation")
+      .eq("user_id", user_id)
+      .maybeSingle()
 
-    // Bold scales with boldness/escalation but never drops below the floor (B2).
-    const system = buildSystem(p, stage, boldLevelFor(p), turns)
+    let p: Profile = {}
+    let system: string
+    let userContent: string
+
+    if (isPromptReply) {
+      // No match_id exists on this path, so there is nothing to detect a stage from and no
+      // history to fetch — a profile prompt IS the cold open. Only the personality dials
+      // are read; buildPromptReplySystem supplies the rest.
+      p = ((await profileQuery).data ?? {}) as Profile
+      system = buildPromptReplySystem(p, boldLevelFor(p))
+      userContent = formatPromptAnswer(prompt, answer)
+    } else {
+      // Personality + stage + history are all best-effort — the function still works with
+      // defaults if any of them come back empty.
+      const [profileRes, matchRes, turnsRes] = await Promise.all([
+        profileQuery,
+        supabase.from("matches").select("message_count").eq("id", match_id).maybeSingle(),
+        // The "last 10 turns" CLAUDE.md always specified — it was never actually queried, so
+        // every request looked like a fresh conversation to the model and it fell back on its
+        // generic prior. Newest-first + limit, then reversed into reading order below.
+        supabase
+          .from("conversation_turns")
+          .select("her_message, sent_text")
+          .eq("match_id", match_id)
+          .order("created_at", { ascending: false })
+          .limit(HISTORY_TURNS),
+      ])
+      p = (profileRes.data ?? {}) as Profile
+      const stage = detectStage(matchRes.data?.message_count ?? 0)
+      const turns = ((turnsRes.data ?? []) as Turn[]).slice().reverse()
+      // Bold scales with boldness/escalation but never drops below the floor (B2).
+      system = buildSystem(p, stage, boldLevelFor(p), turns)
+      userContent = her_message
+    }
 
     // Default (REPLY_PROVIDER=gemini) runs the full chain. Naming any other provider
     // pins that one — the existing single-provider escape hatch, now for 3 names.
@@ -273,7 +307,7 @@ Deno.serve(async (req) => {
       // so an all-throw chain lands on the retryable 503, not the hard PROVIDER_ERROR.
       let result: ProviderResult
       try {
-        result = await fn(system, her_message)
+        result = await fn(system, userContent)
       } catch (e) {
         result = { ok: false, status: 0, rateLimited: true, detail: `${name} threw: ${(e as Error).message}` }
       }

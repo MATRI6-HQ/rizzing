@@ -4,6 +4,7 @@ import OnboardingFlow from './screens/Onboarding/OnboardingFlow'
 import HomeScreen from './screens/Home/HomeScreen'
 import ConversationFlow from './screens/Conversation/ConversationFlow'
 import ProfileScreen from './screens/Profile/ProfileScreen'
+import PromptReplierScreen from './screens/PromptReplier/PromptReplierScreen'
 import ReferPage from './screens/Refer/ReferPage'
 
 // Single source of truth for routes. App.jsx builds the router from this; tests assert it.
@@ -17,6 +18,8 @@ export const ROUTES = [
   { path: '/onboarding', element: <OnboardingFlow />, protected: true },
   { path: '/', element: <HomeScreen />, protected: true },
   { path: '/conversation', element: <ConversationFlow />, protected: true },
+  // Reached only from Home's + menu. No match behind it — see PromptReplierScreen.
+  { path: '/prompt-replier', element: <PromptReplierScreen />, protected: true },
   { path: '/profile', element: <ProfileScreen />, protected: true },
   { path: '/refer', element: <ReferPage />, protected: true },
 ]
