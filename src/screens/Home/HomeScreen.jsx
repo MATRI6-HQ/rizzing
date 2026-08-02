@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTransitionNavigate } from '../../components/PageTransition'
 import { supabase } from '../../lib/supabase'
+import { LOGO_SRC } from '../../lib/assets'
 import { useAuthStore } from '../../store/authStore'
 import { useMatchStore } from '../../store/matchStore'
 import { usePreviousChatStore } from '../../store/previousChatStore'
@@ -44,9 +45,6 @@ function TrashIcon() {
     </svg>
   )
 }
-
-// RIZZING puzzle-piece brand mark (public asset /1.jpg — same image as the favicon).
-const LOGO_SRC = '/1.jpg'
 
 // ── Match card ───────────────────────────────────────────────────────────────
 /**

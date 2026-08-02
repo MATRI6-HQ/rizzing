@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTransitionNavigate } from '../../components/PageTransition'
 import { signIn, signUp, signInWithGoogle } from '../../lib/auth'
+import { LOGO_SRC } from '../../lib/assets'
 import { useAuthStore } from '../../store/authStore'
 import { useProfileStore } from '../../store/profileStore'
 
@@ -183,7 +184,7 @@ export default function AuthScreen() {
         {/* Brand */}
         <div className="flex flex-col items-center mb-10">
           <img
-            src="/1.jpg"
+            src={LOGO_SRC}
             alt="RIZZING"
             className="w-20 h-20 rounded-xl object-cover border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.6)]"
           />

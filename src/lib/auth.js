@@ -38,11 +38,14 @@ export async function signIn(email, password) {
  *
  * NOTE: whatever this resolves to must be listed under Auth → URL Configuration →
  * Redirect URLs in the Supabase dashboard, or the redirect silently falls back to
- * site_url.
+ * site_url. Since the app moved under /app, the listed URL is
+ * https://rizzing.matri6.com/app/auth/callback — the old root-level one no longer exists.
  */
 function oauthRedirectTo() {
-  const base = import.meta.env.VITE_APP_URL || window.location.origin
-  return `${base}/auth/callback`
+  const origin = (import.meta.env.VITE_APP_URL || window.location.origin).replace(/\/$/, '')
+  // BASE_URL already carries the deploy's subpath ('/app/' on web, '/' under Capacitor and
+  // in tests), so the callback tracks vite.config.js instead of hardcoding a second copy.
+  return `${origin}${import.meta.env.BASE_URL}auth/callback`
 }
 
 /**

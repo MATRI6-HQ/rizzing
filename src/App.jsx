@@ -40,6 +40,11 @@ export function AppRoutes() {
   )
 }
 
+// Vite's BASE_URL is '/app/' for the web deploy and '/' for the Capacitor build (see
+// vite.config.js). React Router wants it without the trailing slash, and '' for root —
+// deriving it here means the router basename can never drift from the build's base.
+const BASENAME = import.meta.env.BASE_URL.replace(/\/$/, '')
+
 export default function App() {
   const init = useAuthStore((s) => s.init)
   const loading = useAuthStore((s) => s.loading)
@@ -57,7 +62,7 @@ export default function App() {
   }
 
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={BASENAME}>
       <AppRoutes />
     </BrowserRouter>
   )

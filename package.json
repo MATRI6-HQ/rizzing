@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:android": "vite build --base=/",
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck:functions": "tsc --noEmit --target es2022 --lib es2022,dom --module esnext --moduleResolution bundler --strict --skipLibCheck --allowImportingTsExtensions supabase/functions/deno-shim.d.ts supabase/functions/generate-replies/prompt.ts supabase/functions/generate-replies/index.ts supabase/functions/update-weights/index.ts"

@@ -1,11 +1,29 @@
+# One Netlify site serves both halves of rizzing.matri6.com:
+#   /       → the static MATRI6 landing page (landing/)
+#   /app    → this React app (vite build → dist/)
+# The build stitches them into a single publish directory, `combined/`.
+#
+# `cp -r landing/*` uses a glob rather than `landing/.` on purpose: the glob skips
+# dotfiles, which is what keeps landing/.git (a leftover from the rizzingwebsite repo)
+# out of the deploy. If that directory is ever removed, the glob still behaves.
 [build]
-  command = "npm run build"
-  publish = "dist"
+  command = "npm run build && rm -rf combined && mkdir -p combined/app && cp -r landing/* combined/ && cp -r dist/* combined/app/"
+  publish = "combined"
 
 [build.environment]
   SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_ANON_KEY,VITE_SUPABASE_URL"
 
+# SPA catch-all, scoped to /app. It MUST come first — Netlify takes the first matching
+# rule, so a root-level /* would swallow every app route and serve the landing page.
+#
+# Real files still win over this rule (Netlify only prefers a redirect when force = true),
+# so /app/assets/*.js keeps 404-ing honestly instead of returning index.html.
 [[redirects]]
-  from = "/*"
-  to = "/index.html"
+  from = "/app/*"
+  to = "/app/index.html"
   status = 200
+
+# NOTE: there is deliberately no root-level catch-all. The landing page is a single
+# static index.html that Netlify serves at / on its own, and a /* → /index.html 200 rule
+# would turn every missing landing asset into a 200 HTML response — the silent-failure
+# trap documented under "Static assets" in CLAUDE.md.

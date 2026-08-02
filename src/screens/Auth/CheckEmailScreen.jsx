@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { resendVerification, signOut } from '../../lib/auth'
+import { LOGO_SRC } from '../../lib/assets'
 import { useAuthStore } from '../../store/authStore'
 import { useProfileStore } from '../../store/profileStore'
 
@@ -74,7 +75,7 @@ export default function CheckEmailScreen() {
     <div className="min-h-screen bg-ambient flex items-center justify-center">
       <div className="app-shell flex flex-col items-center justify-center px-6 py-12">
         <img
-          src="/1.jpg"
+          src={LOGO_SRC}
           alt="RIZZING"
           className="w-16 h-16 rounded-xl object-cover border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.6)]"
         />
